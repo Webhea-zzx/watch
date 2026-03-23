@@ -5,29 +5,17 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import ADMIN_PASS, ADMIN_USER, FILES_DIR
+from app.config import FILES_DIR
 from app.db.models import CommandEvent, Device, RawMessage
+from app.web.auth_deps import require_admin
 from app.web.deps import get_db
 from app.tcp_server import active_connection_count
 
-security = HTTPBasic(auto_error=False)
 router = APIRouter()
-
-
-def require_admin(
-    credentials: HTTPBasicCredentials | None = Depends(security),
-) -> None:
-    if credentials is None or credentials.username != ADMIN_USER or credentials.password != ADMIN_PASS:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized",
-            headers={"WWW-Authenticate": "Basic realm=watch"},
-        )
 
 
 @router.get("/health")

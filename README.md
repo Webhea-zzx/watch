@@ -47,7 +47,9 @@ pip install -r requirements.txt
 | `WEB_HOST` | `127.0.0.1` | HTTP 仅作文档提示；实际由 uvicorn 参数决定 |
 | `WEB_PORT` | `8000` | 同上 |
 | `DATABASE_URL` | `sqlite+aiosqlite:///.../data/watch.db` | 异步 SQLite |
-| `ADMIN_USER` / `ADMIN_PASS` | `admin` / `change-me` | 管理端 Basic 认证 |
+| `ADMIN_USER` / `ADMIN_PASS` | `admin` / `Watch2024` | 不设环境变量时以此初始化登录；**部署后请尽快在网页「修改密码」改掉**；也可用环境变量覆盖 |
+| `SECRET_KEY` | `dev-insecure-…` | **生产必改**：用于签名浏览器会话 Cookie |
+| `WEB_AUTH_FILE` | `data/web_auth.json` | 登录凭据存储路径（含密码哈希，请备份并限制权限） |
 | `FILES_DIR` | `./data/files` | `SENDPHOTO` / `JXTK` 媒体落盘目录 |
 | `PLATFORM_TZ_OFFSET_HOURS` | `8` | `LGZONE` 回复中的时区偏移（相对 UTC） |
 
@@ -58,7 +60,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 - **设备 TCP**：`TCP_HOST:TCP_PORT`（默认 `0.0.0.0:9000`）
-- **管理 Web**：浏览器访问 `http://<主机>:8000/`，使用 Basic 账号登录
+- **管理 Web**：浏览器访问 `http://<主机>:8000/login`，**默认账号 `admin` / 密码 `Watch2024`**（未配环境变量且首次运行时）；登录后请在「修改密码」中自行修改。若已设置 `ADMIN_USER`/`ADMIN_PASS` 环境变量，则以环境变量为准生成首次凭据。
 
 ### 出现 Internal Server Error（500）时
 
@@ -99,7 +101,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
    - **HTTP 端口**（默认 `8000`）：给浏览器访问后台；生产建议前面加 **Nginx** 并只对外暴露 **443（HTTPS）**。
 2. 把本仓库拷到服务器（`git clone` 或上传）。
 3. 安装 **Python 3.10+**，创建虚拟环境并 `pip install -r requirements.txt`。
-4. 设置环境变量（至少改 `ADMIN_PASS`；`DATABASE_URL` / `FILES_DIR` 若改路径请保证目录存在且进程可写）。
+4. 环境变量（可选）：不配也可启动，默认用代码内账号 **`admin` / `Watch2024`** 首次登录，再在网页改密；若希望首次即使用自定义账号，可设 `ADMIN_USER` / `ADMIN_PASS`。`DATABASE_URL` / `FILES_DIR` 若改路径请保证目录存在且进程可写。
 5. 用 **systemd** 常驻运行 Uvicorn（示例见下）。
 6. 手表后台或短信 **SETIP** 里填：**服务器公网 IP + TCP 端口**（与 `TCP_PORT` 一致）。
 
@@ -130,8 +132,10 @@ WantedBy=multi-user.target
 ```bash
 TCP_HOST=0.0.0.0
 TCP_PORT=9000
-ADMIN_USER=admin
-ADMIN_PASS=你的强密码
+# 可选；不设则首次凭据为 admin / Watch2024（见上文）
+# ADMIN_USER=admin
+# ADMIN_PASS=你的强密码
+SECRET_KEY=请换成长随机串
 ```
 
 注意：`EnvironmentFile` 里的变量需被进程读取；若你用 `export` 手动启动则直接 `export` 即可。若 systemd 未自动加载 `.env`，可在 `ExecStart` 前使用 `Environment=` 逐行写，或让启动脚本 `source .env`。

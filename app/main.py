@@ -6,19 +6,22 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import TCP_HOST, TCP_PORT
+from app.config import SECRET_KEY, TCP_HOST, TCP_PORT
 from app.db.models import CommandEvent, Device, RawMessage
 from app.db.session import init_db
 from app.tcp_server import active_connection_count, handle_client
+from app.web.auth_deps import require_admin
+from app.web import auth_store
 from app.web.deps import get_db
 from app.web.humanize import summarize_raw_frame, summary_from_parsed
-from app.web.routes import router as api_router, require_admin
+from app.web.routes import router as api_router
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "web" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -70,6 +73,7 @@ async def _load_device_live_tiles(db: AsyncSession, device_id: str) -> tuple[Dev
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    auth_store.ensure_auth_file()
     srv = await asyncio.start_server(handle_client, TCP_HOST, TCP_PORT)
 
     async def _serve() -> None:
@@ -86,7 +90,100 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="手表数据后台", lifespan=lifespan)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    max_age=14 * 24 * 3600,
+    same_site="lax",
+    https_only=False,
+)
 app.include_router(api_router)
+
+
+def _safe_next(nxt: str | None) -> str:
+    if not nxt or not isinstance(nxt, str):
+        return "/"
+    nxt = nxt.strip()
+    if not nxt.startswith("/") or nxt.startswith("//"):
+        return "/"
+    return nxt
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def page_login(request: Request, next: str | None = None):
+    if request.session.get("admin_ok") is True:
+        return RedirectResponse(url=_safe_next(next), status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {"error": None, "next": _safe_next(next), "username_hint": auth_store.get_stored_username()},
+    )
+
+
+@app.post("/login", response_class=HTMLResponse)
+async def action_login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form(""),
+):
+    if auth_store.verify_login(username.strip(), password):
+        request.session["admin_ok"] = True
+        return RedirectResponse(url=_safe_next(next), status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "error": "用户名或密码错误",
+            "next": _safe_next(next),
+            "username_hint": username.strip() or auth_store.get_stored_username(),
+        },
+        status_code=401,
+    )
+
+
+@app.post("/logout")
+async def action_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=303)
+
+
+@app.get("/account/password", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def page_change_password(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "account_password.html",
+        {"error": None, "ok": None},
+    )
+
+
+@app.post("/account/password", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def action_change_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    new_password2: str = Form(...),
+):
+    if new_password != new_password2:
+        return templates.TemplateResponse(
+            request,
+            "account_password.html",
+            {"error": "两次输入的新密码不一致", "ok": None},
+            status_code=400,
+        )
+    ok, msg = auth_store.change_password(current_password, new_password)
+    if not ok:
+        return templates.TemplateResponse(
+            request,
+            "account_password.html",
+            {"error": msg, "ok": None},
+            status_code=400,
+        )
+    return templates.TemplateResponse(
+        request,
+        "account_password.html",
+        {"error": None, "ok": "密码已更新，请牢记新密码。"},
+    )
 
 
 @app.get("/partials/recent", response_class=HTMLResponse, dependencies=[Depends(require_admin)])

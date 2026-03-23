@@ -19,8 +19,15 @@ WEB_PORT = int(_get("WEB_PORT", "8000"))
 
 DATABASE_URL = _get("DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR / 'data' / 'watch.db'}")
 
+# 未设置环境变量时的默认账号（仅用于首次生成 web_auth.json）；登录后请在网页「修改密码」中改掉
 ADMIN_USER = _get("ADMIN_USER", "admin")
-ADMIN_PASS = _get("ADMIN_PASS", "change-me")
+ADMIN_PASS = _get("ADMIN_PASS", "Watch2024")
+
+# Session 签名密钥（生产环境务必设置固定值，否则重启后会话全部失效）
+SECRET_KEY = _get("SECRET_KEY", "dev-insecure-change-me-set-env-secret-key")
+
+# 登录凭据文件（修改密码后写入此处；首次运行从 ADMIN_USER/ADMIN_PASS 生成）
+WEB_AUTH_FILE = Path(_get("WEB_AUTH_FILE", str(BASE_DIR / "data" / "web_auth.json")))
 
 FILES_DIR = Path(_get("FILES_DIR", str(BASE_DIR / "data" / "files")))
 FILES_DIR.mkdir(parents=True, exist_ok=True)
