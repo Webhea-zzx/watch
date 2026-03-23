@@ -49,7 +49,7 @@ app.include_router(api_router)
 async def partial_recent(request: Request, db: AsyncSession = Depends(get_db)):
     r = await db.execute(select(RawMessage).order_by(RawMessage.id.desc()).limit(40))
     rows = list(r.scalars())
-    return templates.TemplateResponse("_recent.html", {"request": request, "rows": rows})
+    return templates.TemplateResponse(request, "_recent.html", {"rows": rows})
 
 
 @app.get("/", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
@@ -65,9 +65,9 @@ async def page_index(request: Request, db: AsyncSession = Depends(get_db)):
     n_dev = await db.scalar(select(func.count()).select_from(Device))
     online = await active_connection_count()
     return templates.TemplateResponse(
+        request,
         "index.html",
         {
-            "request": request,
             "online": online,
             "devices": n_dev or 0,
             "messages_last_hour": n_msg or 0,
@@ -80,7 +80,7 @@ async def page_index(request: Request, db: AsyncSession = Depends(get_db)):
 async def page_devices(request: Request, db: AsyncSession = Depends(get_db)):
     r = await db.execute(select(Device).order_by(Device.last_seen.desc()))
     devs = list(r.scalars())
-    return templates.TemplateResponse("devices.html", {"request": request, "devices": devs})
+    return templates.TemplateResponse(request, "devices.html", {"devices": devs})
 
 
 @app.get("/devices/{device_id}", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
@@ -122,9 +122,9 @@ async def page_device_detail(
         media_name = Path(ev.media_path).name if ev.media_path else None
         parsed_events.append((ev, sj, media_name))
     return templates.TemplateResponse(
+        request,
         "device_detail.html",
         {
-            "request": request,
             "device": dev,
             "events": parsed_events,
             "filter_cmd": cmd or "",
@@ -140,4 +140,4 @@ async def page_message(request: Request, msg_id: int, db: AsyncSession = Depends
     m = r.scalar_one_or_none()
     if m is None:
         raise HTTPException(404)
-    return templates.TemplateResponse("message_detail.html", {"request": request, "m": m})
+    return templates.TemplateResponse(request, "message_detail.html", {"m": m})

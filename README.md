@@ -60,6 +60,14 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - **设备 TCP**：`TCP_HOST:TCP_PORT`（默认 `0.0.0.0:9000`）
 - **管理 Web**：浏览器访问 `http://<主机>:8000/`，使用 Basic 账号登录
 
+### 出现 Internal Server Error（500）时
+
+1. **看运行 `uvicorn` 的终端**：一般会打印 Python 报错栈（Traceback），把这一段保存下来排查。
+2. **先试无需登录的接口**：`curl http://127.0.0.1:8000/health` 若返回 `{"status":"ok"}`，说明进程正常，问题多半在具体页面或数据库。
+3. **SQLite 并发**：TCP 与 Web 同时访问同一库时，旧版本可能出现 `database is locked`。当前代码已对 SQLite 开启 **WAL** 与 **busy_timeout**（见 `app/db/session.py`），请拉取最新代码后重启。
+4. **权限**：确保项目目录下能创建并写入 `data/watch.db` 与 `data/files/`（`chmod` / 不要用只读用户跑在无写权限目录）。
+5. **模板是否齐全**：若手工上传代码，确认 `app/web/templates/` 下文件完整。
+
 ## 部署到服务器
 
 ### 用图形界面还是命令行？
