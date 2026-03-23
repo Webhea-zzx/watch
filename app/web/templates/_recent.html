@@ -1,0 +1,29 @@
+{% import "macros.html" as human %}
+<table role="grid">
+  <thead>
+    <tr>
+      <th>详情编号</th>
+      <th>时间</th>
+      <th>方向</th>
+      <th>大致类型</th>
+      <th>手表编号</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for m in rows %}
+    <tr>
+      <td><a href="/messages/{{ m.id }}">打开详情</a> <span class="muted">（编号 {{ m.id }}）</span></td>
+      <td>{{ m.created_at }}</td>
+      <td>
+        {% if m.direction == 'in' %}手表发来
+        {% elif m.direction == 'out' %}服务器回复
+        {% else %}{{ m.direction }}{% endif %}
+      </td>
+      <td>{{ human.recent_kind(m.raw_frame, m.direction) }}</td>
+      <td>{{ m.device_id or '暂无' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">暂时没有数据。请确认手表已联网并连到本服务器。</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

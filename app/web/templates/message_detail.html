@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}记录详情 — 手表数据后台{% endblock %}
+{% block content %}
+<h1>单条记录详情</h1>
+<p class="page-intro">这是某一次手表和服务器之间传递的一条原始记录。大部分客户不用看下面灰色技术区，只要知道「是成功还是失败」即可。</p>
+
+<p class="page-actions">
+  {% if m.device_id %}
+    <a href="/devices/{{ m.device_id }}">回到该手表详情</a>
+  {% endif %}
+  <a href="/">返回总览</a>
+</p>
+
+<ul class="info-card">
+  <li><strong>记录编号：</strong>{{ m.id }}</li>
+  <li><strong>发生时间：</strong>{{ m.created_at }}</li>
+  <li><strong>方向：</strong>
+    {% if m.direction == 'in' %}
+      手表发给服务器
+    {% elif m.direction == 'out' %}
+      服务器发给手表
+    {% else %}
+      {{ m.direction }}
+    {% endif %}
+  </li>
+  <li><strong>是否处理成功：</strong>
+    {% if m.parse_ok %}是{% else %}否（请联系技术人员）{% endif %}
+  </li>
+  {% if m.device_id %}
+    <li><strong>手表编号：</strong>{{ m.device_id }}</li>
+  {% endif %}
+</ul>
+
+{% if m.error %}
+<p role="alert"><strong>失败原因（给技术人员看）：</strong> {{ m.error }}</p>
+{% endif %}
+
+<details class="tech-details" style="margin-top: 1.25rem;">
+  <summary>以下为技术用原始内容，一般不用展开</summary>
+  <p class="help">连接编号（仅调试）：<span class="tech">{{ m.connection_id }}</span></p>
+  <h3 class="muted" style="font-size: 1rem; margin: 1rem 0 0.5rem; font-weight: 700;">完整原始文本</h3>
+  <pre class="tech tech-block" style="white-space: pre-wrap; margin: 0;">{{ m.raw_frame }}</pre>
+</details>
+{% endblock %}

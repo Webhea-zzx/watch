@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}总览 — 手表数据后台{% endblock %}
+{% block content %}
+<h1>总览</h1>
+<p class="page-intro">这一页用几个数字说明当前情况。下面列表会自动刷新，显示手表和服务器之间最新的往来记录。</p>
+
+<div class="stat-grid">
+  <article class="stat-card">
+    <h3>此刻在线的手表</h3>
+    <p class="num">{{ online }}</p>
+    <p class="hint">正与服务器保持连接的数量，关机或没网会是 0。</p>
+  </article>
+  <article class="stat-card">
+    <h3>系统里登记过的手表</h3>
+    <p class="num">{{ devices }}</p>
+    <p class="hint">曾经连上来过至少一次的设备总数。</p>
+  </article>
+  <article class="stat-card">
+    <h3>最近一小时收到的条数</h3>
+    <p class="num">{{ messages_last_hour }}</p>
+    <p class="hint">手表上传 + 服务器回复，都算一条。</p>
+  </article>
+  <article class="stat-card">
+    <h3>最近一小时处理失败</h3>
+    <p class="num">{{ errors_last_hour }}</p>
+    <p class="hint">若大于 0，请把截图发给技术人员，不要自己改服务器。</p>
+  </article>
+</div>
+
+<h2>最新记录</h2>
+<p class="help">大约每 3 秒自动更新一次。点某一行的「打开详情」可看完整内容。</p>
+<div class="table-scroll">
+  <div id="recent" class="table-host" hx-get="/partials/recent" hx-trigger="load, every 3s" hx-swap="innerHTML">
+    <p class="muted" style="padding:1rem">正在加载…</p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,81 @@
+{# 指令代码 -> 客户能看懂的名称 #}
+{% macro data_type_name(code) -%}
+{%- set c = (code or '')|upper -%}
+{%- if c == 'INIT' -%}首次联网登记{%- elif c == 'LGZONE' -%}校时请求{%- elif c == 'LK' -%}心跳（步数、电量）{%- elif c == 'LKSET' -%}心跳间隔设置{%- elif c == 'UD' -%}定位{%- elif c == 'UD2' -%}补传定位{%- elif c == 'AL' -%}报警 / 求救{%- elif c == 'GETLOC' -%}查询位置描述{%- elif c == 'WT' -%}天气请求{%- elif c == 'CR' -%}立即定位{%- elif c == 'HEART' -%}心率{%- elif c == 'BLOOD' -%}血压{%- elif c == 'BPHRT' -%}心率与血压{%- elif c == 'OXYGEN' -%}血氧{%- elif c == 'SLEEP' -%}睡眠{%- elif c == 'TEMP' -%}体温{%- elif c == 'SMS' -%}短信内容上报{%- elif c == 'JXTK' -%}语音微聊{%- elif c == 'SENDPHOTO' -%}照片{%- elif c == 'BEACON' -%}蓝牙信标{%- elif c == 'CLOCKIN' or c == 'CLOCKOUT' -%}上下班打卡{%- elif c == 'MFD' or c == 'DFD' or c == 'QFD' -%}好友相关{%- elif c == 'HEALTHCODEQ' -%}健康码请求{%- else -%}其它数据{%- endif -%}
+{%- endmacro %}
+
+{% macro friendly_summary(cmd, sj) -%}
+{%- set c = (cmd or '')|upper -%}
+{%- if c == 'LK' -%}
+  {%- if sj.steps is defined and sj.battery is defined -%}
+    步数约 {{ sj.steps }}，电量 {{ sj.battery }}%
+  {%- elif sj.battery is defined -%}
+    电量 {{ sj.battery }}%
+  {%- else -%}
+    已收到心跳数据
+  {%- endif -%}
+{%- elif c == 'UD' or c == 'UD2' or c == 'AL' -%}
+  {%- if sj.lat is defined and sj.lng is defined -%}
+    纬度 {{ sj.lat }}，经度 {{ sj.lng }}（地图见上方）
+  {%- else -%}
+    已收到定位相关信息（可能为基站或 WiFi，未显示经纬度）
+  {%- endif -%}
+{%- elif c == 'INIT' -%}
+  {%- if sj.firmware -%}
+    系统版本：{{ sj.firmware }}
+  {%- else -%}
+    手表已登记到系统
+  {%- endif -%}
+{%- elif c == 'HEART' -%}
+  {%- if sj.parts and sj.parts|length > 1 -%}
+    心率约 {{ sj.parts[1] }} 次/分钟
+  {%- else -%}
+    已收到心率数据
+  {%- endif -%}
+{%- elif c == 'BLOOD' -%}
+  {%- if sj.parts and sj.parts|length > 2 -%}
+    收缩压 {{ sj.parts[1] }}，舒张压 {{ sj.parts[2] }}
+  {%- else -%}
+    已收到血压数据
+  {%- endif -%}
+{%- elif c == 'OXYGEN' -%}
+  {%- if sj.parts and sj.parts|length > 1 -%}
+    血氧约 {{ sj.parts[1] }}%
+  {%- else -%}
+    已收到血氧数据
+  {%- endif -%}
+{%- elif c == 'TEMP' -%}
+  {%- if sj.parts and sj.parts|length > 1 -%}
+    体温相关数值：{{ sj.parts[1] }}
+  {%- else -%}
+    已收到体温数据
+  {%- endif -%}
+{%- elif c == 'SENDPHOTO' -%}
+  {%- if sj.declared_size is defined -%}
+    照片大小约 {{ sj.declared_size }} 字节，已保存附件
+  {%- else -%}
+    已收到照片
+  {%- endif -%}
+{%- elif c == 'JXTK' -%}
+  {%- if sj.audio_size is defined -%}
+    语音片段约 {{ sj.audio_size }} 字节，已保存附件
+  {%- else -%}
+    已收到语音数据
+  {%- endif -%}
+{%- elif c == 'BEACON' -%}
+  蓝牙信标信息已记录
+{%- else -%}
+  本条已保存，如需细节可展开下方「技术明细」
+{%- endif -%}
+{%- endmacro %}
+
+{% macro recent_kind(raw, dir) -%}
+{%- set s = raw or '' -%}
+{%- if ',UD,' in s or '*UD,' in s -%}定位
+{%- elif ',LK,' in s or '*LK,' in s -%}心跳
+{%- elif ',INIT,' in s or '*INIT,' in s -%}联网登记
+{%- elif ',AL,' in s -%}报警
+{%- elif dir == 'out' -%}服务器回复
+{%- else -%}其它通信
+{%- endif -%}
+{%- endmacro %}

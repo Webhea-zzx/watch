@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% import "macros.html" as human %}
+{% block extra_head %}
+{% if lat is not none and lng is not none %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+{% endif %}
+{% endblock %}
+{% block title %}手表 {{ device.device_id }} — 手表数据后台{% endblock %}
+{% block content %}
+<h1>手表详情</h1>
+<p class="page-intro">编号 <strong>{{ device.device_id }}</strong>。品牌代号 {{ device.vendor }}（可忽略）。最后一次有数据：{{ device.last_seen }}。</p>
+<p class="page-actions">
+  <a href="/devices">返回手表列表</a>
+  <a href="/">返回总览</a>
+</p>
+
+<h2>按类型筛选记录</h2>
+<form method="get" class="filter-bar">
+  <label>
+    要看哪一类数据
+    <select name="cmd">
+      <option value="" {% if not filter_cmd %}selected{% endif %}>全部</option>
+      <option value="UD" {% if filter_cmd == 'UD' %}selected{% endif %}>定位</option>
+      <option value="LK" {% if filter_cmd == 'LK' %}selected{% endif %}>心跳（步数、电量）</option>
+      <option value="INIT" {% if filter_cmd == 'INIT' %}selected{% endif %}>首次联网</option>
+      <option value="AL" {% if filter_cmd == 'AL' %}selected{% endif %}>报警 / 求救</option>
+      <option value="HEART" {% if filter_cmd == 'HEART' %}selected{% endif %}>心率</option>
+      <option value="TEMP" {% if filter_cmd == 'TEMP' %}selected{% endif %}>体温</option>
+      <option value="SENDPHOTO" {% if filter_cmd == 'SENDPHOTO' %}selected{% endif %}>照片</option>
+      <option value="JXTK" {% if filter_cmd == 'JXTK' %}selected{% endif %}>语音</option>
+    </select>
+  </label>
+  <button type="submit">筛选</button>
+  <a href="/devices/{{ device.device_id }}" role="button" class="secondary">清除筛选</a>
+</form>
+<p class="help">不懂可以一直选「全部」。下拉框里的英文是给技术人员对照用的，您只看中文即可。</p>
+
+{% if lat is not none and lng is not none %}
+<h2>地图上的位置</h2>
+<p class="help">以下为手表最近一次上报的大致位置。地图来自互联网公开地图，可能与国内导航软件有偏差，仅供参考。</p>
+<p>纬度 <strong>{{ "%.6f"|format(lat) }}</strong>，经度 <strong>{{ "%.6f"|format(lng) }}</strong></p>
+<div id="map" class="map-embed"></div>
+<script>
+  (function () {
+    var lat = {{ lat }};
+    var lng = {{ lng }};
+    var m = L.map('map').setView([lat, lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '地图数据 OpenStreetMap' }).addTo(m);
+    L.marker([lat, lng]).addTo(m).bindPopup('最近一次上报位置');
+  })();
+</script>
+{% else %}
+<h2>地图上的位置</h2>
+<p class="muted">还没有可用的定位记录。请稍等手表上报定位，或确认手表在室外、已打开定位相关权限。</p>
+{% endif %}
+
+<h2>历史记录</h2>
+<p class="help">按时间从新到旧排列。附件列可下载照片或语音（若有）。</p>
+<div class="table-scroll">
+<table role="grid">
+  <thead>
+    <tr>
+      <th>时间</th>
+      <th>类型</th>
+      <th>主要内容</th>
+      <th>附件</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ev, sj, media_name in parsed_events %}
+    <tr>
+      <td>{{ ev.created_at }}</td>
+      <td>{{ human.data_type_name(ev.command) }}</td>
+      <td>
+        {{ human.friendly_summary(ev.command, sj) }}
+        <details class="tech-details">
+          <summary>技术人员查看明细</summary>
+          <pre class="tech" style="margin: 0.5rem 0 0; white-space: pre-wrap; font-size: 0.82rem;">{{ sj | tojson(indent=2) }}</pre>
+        </details>
+      </td>
+      <td>
+        {% if media_name %}
+          <a href="/media/{{ media_name }}">下载文件</a>
+        {% else %}
+          无
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">暂无记录。请确认手表已连接本服务器并正常上报。</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

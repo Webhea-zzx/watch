@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}全部手表 — 手表数据后台{% endblock %}
+{% block content %}
+<h1>全部手表</h1>
+<p class="page-intro">每一行是一块手表。点第一列的编号可以查看位置、电量历史和详细记录。</p>
+
+<div class="table-scroll">
+<table role="grid">
+  <thead>
+    <tr>
+      <th>手表编号</th>
+      <th>品牌代号</th>
+      <th>最后一次有数据的时间</th>
+      <th>上次电量</th>
+      <th>上次知道的经纬度</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in devices %}
+    <tr>
+      <td><a href="/devices/{{ d.device_id }}">{{ d.device_id }}</a></td>
+      <td>{{ d.vendor }} <span class="muted">（一般不用管）</span></td>
+      <td>{{ d.last_seen }}</td>
+      <td>
+        {% if d.last_lk_battery is not none %}
+          {% if d.last_lk_battery >= 128 %}
+            充电中（显示值 {{ d.last_lk_battery }}，实际约 {{ d.last_lk_battery - 128 }}%）
+          {% else %}
+            约 {{ d.last_lk_battery }}%
+          {% endif %}
+        {% else %}
+          暂无
+        {% endif %}
+      </td>
+      <td>
+        {% if d.last_lat is not none and d.last_lng is not none %}
+          {{ "%.5f"|format(d.last_lat) }}，{{ "%.5f"|format(d.last_lng) }}
+        {% else %}
+          还没有定位记录
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">还没有任何手表连上来过。请确认手表已开机、能上网，且服务器地址配置正确。</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
