@@ -10,11 +10,17 @@
 {% block content %}
 <h1>手表详情</h1>
 <p class="page-intro"><strong>{{ device.device_id }}</strong> · {{ device.vendor }} · {{ device.last_seen | local_time }}</p>
-<p class="page-actions">
-  <a href="/devices">列表</a>
-  <a href="/">总览</a>
-  <a href="/devices/{{ device.device_id }}/export.xlsx" role="button">导出全部历史（Excel）</a>
-</p>
+<div class="page-actions page-actions-split">
+  <span class="page-actions-text">
+    <a href="/devices">列表</a>
+    <a href="/">总览</a>
+  </span>
+  <a
+    href="/devices/{{ device.device_id }}/export.xlsx"
+    class="btn-export-excel"
+    download
+  ><svg class="btn-export-excel-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>导出全部历史（Excel）</a>
+</div>
 <p class="help">导出为表格：中文类型与说明、东八区时间；不含原始报文。含本手表<strong>全部</strong>指令记录（不受下方筛选与 200 条限制）。</p>
 
 <h2>当前数据（各类型最近一次）</h2>
