@@ -25,6 +25,47 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["human_frame"] = summarize_raw_frame
 templates.env.globals["human_summary"] = summary_from_parsed
 
+# 手表详情页「当前数据」HTMX 轮询间隔（秒）
+DEVICE_LIVE_POLL_SECONDS = 15
+
+
+async def _live_tiles_for_device(db: AsyncSession, device_id: str) -> list[dict]:
+    latest_by_cmd = (
+        select(CommandEvent.command, func.max(CommandEvent.id).label("mid"))
+        .where(CommandEvent.device_id == device_id)
+        .group_by(CommandEvent.command)
+        .subquery()
+    )
+    lr = await db.execute(
+        select(CommandEvent)
+        .join(latest_by_cmd, CommandEvent.id == latest_by_cmd.c.mid)
+        .order_by(CommandEvent.created_at.desc())
+    )
+    live_tiles: list[dict] = []
+    for ev in lr.scalars():
+        try:
+            sj = json.loads(ev.summary_json) if ev.summary_json else {}
+        except json.JSONDecodeError:
+            sj = {}
+        media_name = Path(ev.media_path).name if ev.media_path else None
+        live_tiles.append(
+            {
+                "command": ev.command,
+                "summary": summary_from_parsed(ev.command, sj),
+                "at": ev.created_at,
+                "media_name": media_name,
+            }
+        )
+    return live_tiles
+
+
+async def _load_device_live_tiles(db: AsyncSession, device_id: str) -> tuple[Device | None, list[dict]]:
+    dr = await db.execute(select(Device).where(Device.device_id == device_id))
+    dev = dr.scalar_one_or_none()
+    if dev is None:
+        return None, []
+    return dev, await _live_tiles_for_device(db, device_id)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -119,16 +160,37 @@ async def page_device_detail(
             sj = {}
         media_name = Path(ev.media_path).name if ev.media_path else None
         parsed_events.append((ev, sj, media_name))
+
+    live_tiles = await _live_tiles_for_device(db, device_id)
+
     return templates.TemplateResponse(
         request,
         "device_detail.html",
         {
             "device": dev,
             "parsed_events": parsed_events,
+            "live_tiles": live_tiles,
+            "live_poll_seconds": DEVICE_LIVE_POLL_SECONDS,
             "filter_cmd": cmd or "",
             "lat": dev.last_lat,
             "lng": dev.last_lng,
         },
+    )
+
+
+@app.get(
+    "/devices/{device_id}/partials/live",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def partial_device_live(request: Request, device_id: str, db: AsyncSession = Depends(get_db)):
+    dev, live_tiles = await _load_device_live_tiles(db, device_id)
+    if dev is None:
+        raise HTTPException(404)
+    return templates.TemplateResponse(
+        request,
+        "_device_live_grid.html",
+        {"device": dev, "live_tiles": live_tiles},
     )
 
 

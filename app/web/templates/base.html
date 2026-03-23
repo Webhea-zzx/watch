@@ -239,6 +239,16 @@
     }
 
     /* ========== 统计卡片 ========== */
+    #device-live-host.htmx-request {
+      opacity: 0.72;
+      transition: opacity 0.2s ease;
+    }
+
+    .htmx-live-hint {
+      font-size: 0.82rem;
+      margin: 0.35rem 0 0 0;
+    }
+
     .stat-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
@@ -296,6 +306,31 @@
       color: var(--text-muted);
       margin: 0.55rem 0 0 0;
       line-height: 1.45;
+    }
+
+    .stat-card .live-summary {
+      font-size: 0.98rem;
+      font-weight: 650;
+      margin: 0;
+      line-height: 1.45;
+      color: var(--text);
+    }
+
+    .stat-card .live-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin: 0.5rem 0 0 0;
+      line-height: 1.45;
+    }
+
+    .stat-card .live-meta a {
+      font-weight: 600;
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    .stat-card .live-meta a:hover {
+      text-decoration: underline;
     }
 
     /* ========== 表格 ========== */

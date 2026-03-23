@@ -15,6 +15,18 @@
   <a href="/">总览</a>
 </p>
 
+<h2>当前数据（各类型最近一次）</h2>
+<p class="help">每种上报类型各占一格，内容为该类型<strong>最后一条</strong>记录；约每 {{ live_poll_seconds }} 秒自动刷新本区域，也可手动刷新整页。</p>
+<div
+  id="device-live-host"
+  hx-get="/devices/{{ device.device_id }}/partials/live"
+  hx-trigger="load delay:1s, every {{ live_poll_seconds }}s"
+  hx-swap="innerHTML"
+>
+{% include "_device_live_grid.html" %}
+</div>
+<p class="htmx-live-hint muted" aria-live="polite">自动更新中（每 {{ live_poll_seconds }} 秒）</p>
+
 <h2>筛选</h2>
 <form method="get" class="filter-bar">
   <label>
