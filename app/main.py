@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from urllib.parse import quote
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,7 @@ from app.web import auth_store
 from app.web.deps import get_db
 from app.web.humanize import summarize_raw_frame, summary_from_parsed
 from app.web.routes import router as api_router
+from app.web.export_device_xlsx import build_device_history_xlsx, safe_filename_part
 from app.web.timefmt import format_local_time
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "web" / "templates"
@@ -217,6 +219,32 @@ async def page_devices(request: Request, db: AsyncSession = Depends(get_db)):
     r = await db.execute(select(Device).order_by(Device.last_seen.desc()))
     devs = list(r.scalars())
     return templates.TemplateResponse(request, "devices.html", {"devices": devs})
+
+
+@app.get(
+    "/devices/{device_id}/export.xlsx",
+    dependencies=[Depends(require_admin)],
+)
+async def export_device_history_xlsx(device_id: str, db: AsyncSession = Depends(get_db)):
+    dr = await db.execute(select(Device).where(Device.device_id == device_id))
+    if dr.scalar_one_or_none() is None:
+        raise HTTPException(404)
+    r = await db.execute(
+        select(CommandEvent)
+        .where(CommandEvent.device_id == device_id)
+        .order_by(CommandEvent.created_at.asc())
+    )
+    events = list(r.scalars())
+    body = build_device_history_xlsx(events)
+    part = safe_filename_part(device_id)
+    ascii_name = f"watch_{part}_history.xlsx"
+    utf8_name = f"手表{device_id}_历史记录.xlsx"
+    cd = f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(utf8_name)}'
+    return Response(
+        content=body,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": cd},
+    )
 
 
 @app.get("/devices/{device_id}", response_class=HTMLResponse, dependencies=[Depends(require_admin)])

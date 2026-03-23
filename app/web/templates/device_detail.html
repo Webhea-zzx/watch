@@ -13,7 +13,9 @@
 <p class="page-actions">
   <a href="/devices">列表</a>
   <a href="/">总览</a>
+  <a href="/devices/{{ device.device_id }}/export.xlsx" role="button">导出全部历史（Excel）</a>
 </p>
+<p class="help">导出为表格：中文类型与说明、东八区时间；不含原始报文。含本手表<strong>全部</strong>指令记录（不受下方筛选与 200 条限制）。</p>
 
 <h2>当前数据（各类型最近一次）</h2>
 <p class="help">每种上报类型各占一格，内容为该类型<strong>最后一条</strong>记录；约每 {{ live_poll_seconds }} 秒自动刷新本区域，也可手动刷新整页。</p>
