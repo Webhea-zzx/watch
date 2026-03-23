@@ -2,14 +2,14 @@
 <div class="stat-grid" aria-label="实时概览">
   <article class="stat-card">
     <h3>最后通信</h3>
-    <p class="live-summary">{{ device.last_seen }}</p>
+    <p class="live-summary">{{ device.last_seen | local_time }}</p>
     <p class="live-meta">任意数据到达服务器的最近时间</p>
   </article>
   {% for tile in live_tiles %}
   <article class="stat-card">
     <h3>{{ human.data_type_name(tile.command) }}</h3>
     <p class="live-summary">{{ tile.summary }}</p>
-    <p class="live-meta">上报时间 {{ tile.at }}{% if tile.media_name %} · <a href="/media/{{ tile.media_name }}">附件</a>{% endif %}</p>
+    <p class="live-meta">上报时间 {{ tile.at | local_time }}{% if tile.media_name %} · <a href="/media/{{ tile.media_name }}">附件</a>{% endif %}</p>
   </article>
   {% endfor %}
   {% if not live_tiles %}

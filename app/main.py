@@ -22,10 +22,12 @@ from app.web import auth_store
 from app.web.deps import get_db
 from app.web.humanize import summarize_raw_frame, summary_from_parsed
 from app.web.routes import router as api_router
+from app.web.timefmt import format_local_time
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "web" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["human_frame"] = summarize_raw_frame
+templates.env.filters["local_time"] = format_local_time
 templates.env.globals["human_summary"] = summary_from_parsed
 
 # 手表详情页「当前数据」HTMX 轮询间隔（秒）

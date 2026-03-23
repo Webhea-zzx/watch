@@ -12,7 +12,7 @@
 
 <ul class="info-card">
   <li><strong>编号</strong> {{ m.id }}</li>
-  <li><strong>时间</strong> {{ m.created_at }}</li>
+  <li><strong>时间</strong> {{ m.created_at | local_time }}</li>
   <li><strong>方向</strong>
     {% if m.direction == 'in' %}上行{% elif m.direction == 'out' %}下行{% else %} {{ m.direction }}{% endif %}
   </li>

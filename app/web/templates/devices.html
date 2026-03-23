@@ -19,7 +19,7 @@
     <tr>
       <td><a href="/devices/{{ d.device_id }}">{{ d.device_id }}</a></td>
       <td>{{ d.vendor }}</td>
-      <td>{{ d.last_seen }}</td>
+      <td>{{ d.last_seen | local_time }}</td>
       <td>
         {% if d.last_lk_battery is not none %}
           {% if d.last_lk_battery >= 128 %}

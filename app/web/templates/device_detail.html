@@ -9,7 +9,7 @@
 {% block title %}手表 {{ device.device_id }} — 手表数据后台{% endblock %}
 {% block content %}
 <h1>手表详情</h1>
-<p class="page-intro"><strong>{{ device.device_id }}</strong> · {{ device.vendor }} · {{ device.last_seen }}</p>
+<p class="page-intro"><strong>{{ device.device_id }}</strong> · {{ device.vendor }} · {{ device.last_seen | local_time }}</p>
 <p class="page-actions">
   <a href="/devices">列表</a>
   <a href="/">总览</a>
@@ -79,7 +79,7 @@
   <tbody>
     {% for ev, sj, media_name in parsed_events %}
     <tr>
-      <td>{{ ev.created_at }}</td>
+      <td>{{ ev.created_at | local_time }}</td>
       <td>{{ human.data_type_name(ev.command) }}</td>
       <td>
         {{ human.friendly_summary(ev.command, sj) }}

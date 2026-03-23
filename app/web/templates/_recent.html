@@ -14,7 +14,7 @@
     {% for m in rows %}
     <tr>
       <td><a href="/messages/{{ m.id }}">{{ m.id }}</a></td>
-      <td>{{ m.created_at }}</td>
+      <td>{{ m.created_at | local_time }}</td>
       <td>
         {% if m.direction == 'in' %}手表发来
         {% elif m.direction == 'out' %}服务器回复
