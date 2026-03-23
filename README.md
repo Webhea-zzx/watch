@@ -100,53 +100,19 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
    - **TCP 端口**（默认 `9000`）：给手表连；
    - **HTTP 端口**（默认 `8000`）：给浏览器访问后台；生产建议前面加 **Nginx** 并只对外暴露 **443（HTTPS）**。
 2. 把本仓库拷到服务器（`git clone` 或上传）。
-3. 安装 **Python 3.10+**，创建虚拟环境并 `pip install -r requirements.txt`。
+3. 安装 **Python 3.10+**，创建虚拟环境并 `pip install -r requirements.txt`；在项目目录执行与上文「运行（本机调试）」相同的 `uvicorn app.main:app --host 0.0.0.0 --port 8000`。
 4. 环境变量（可选）：不配也可启动，默认用代码内账号 **`admin` / `Watch2024`** 首次登录，再在网页改密；若希望首次即使用自定义账号，可设 `ADMIN_USER` / `ADMIN_PASS`。`DATABASE_URL` / `FILES_DIR` 若改路径请保证目录存在且进程可写。
-5. 用 **systemd** 常驻运行 Uvicorn（示例见下）。
-6. 手表后台或短信 **SETIP** 里填：**服务器公网 IP + TCP 端口**（与 `TCP_PORT` 一致）。
+5. 手表后台或短信 **SETIP** 里填：**服务器公网 IP + TCP 端口**（与 `TCP_PORT` 一致）。
 
-### systemd 示例（`/etc/systemd/system/watch-gateway.service`）
+### systemd 一键（可选，不用 vi 改配置）
 
-请把 `User`、`WorkingDirectory`、`EnvironmentFile` 换成你的实际路径与配置。
-
-```ini
-[Unit]
-Description=Watch TCP + Web gateway
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/opt/watch
-EnvironmentFile=-/opt/watch/.env
-ExecStart=/opt/watch/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-在 `.env` 中可写（示例）：
+完成上表第 3 步（已有 `.venv`）后，在**仓库根目录**执行：
 
 ```bash
-TCP_HOST=0.0.0.0
-TCP_PORT=9000
-# 可选；不设则首次凭据为 admin / Watch2024（见上文）
-# ADMIN_USER=admin
-# ADMIN_PASS=你的强密码
-SECRET_KEY=请换成长随机串
+sudo bash deploy/oneclick-systemd.sh
 ```
 
-注意：`EnvironmentFile` 里的变量需被进程读取；若你用 `export` 手动启动则直接 `export` 即可。若 systemd 未自动加载 `.env`，可在 `ExecStart` 前使用 `Environment=` 逐行写，或让启动脚本 `source .env`。
-
-启用服务：
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now watch-gateway
-sudo systemctl status watch-gateway
-```
+脚本会自动写入服务文件、可选生成 `.env`，无需编辑配置文件。说明见 [`deploy/README.md`](deploy/README.md)。
 
 ### 生产环境可选增强
 
