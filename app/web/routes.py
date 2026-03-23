@@ -39,12 +39,6 @@ async def health() -> dict[str, str]:
 async def api_stats(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     since = datetime.utcnow() - timedelta(hours=1)
     n_msg = await db.scalar(select(func.count()).select_from(RawMessage).where(RawMessage.created_at >= since))
-    n_err = await db.scalar(
-        select(func.count()).select_from(RawMessage).where(
-            RawMessage.created_at >= since,
-            RawMessage.parse_ok.is_(False),
-        )
-    )
     n_dev = await db.scalar(select(func.count()).select_from(Device))
     online = await active_connection_count()
     return JSONResponse(
@@ -52,7 +46,6 @@ async def api_stats(db: AsyncSession = Depends(get_db)) -> JSONResponse:
             "online_connections": online,
             "devices": n_dev or 0,
             "messages_last_hour": n_msg or 0,
-            "errors_last_hour": n_err or 0,
         }
     )
 

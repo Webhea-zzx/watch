@@ -17,10 +17,13 @@ from app.db.models import CommandEvent, Device, RawMessage
 from app.db.session import init_db
 from app.tcp_server import active_connection_count, handle_client
 from app.web.deps import get_db
+from app.web.humanize import summarize_raw_frame, summary_from_parsed
 from app.web.routes import router as api_router, require_admin
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "web" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.filters["human_frame"] = summarize_raw_frame
+templates.env.globals["human_summary"] = summary_from_parsed
 
 
 @asynccontextmanager
@@ -56,12 +59,6 @@ async def partial_recent(request: Request, db: AsyncSession = Depends(get_db)):
 async def page_index(request: Request, db: AsyncSession = Depends(get_db)):
     since = datetime.utcnow() - timedelta(hours=1)
     n_msg = await db.scalar(select(func.count()).select_from(RawMessage).where(RawMessage.created_at >= since))
-    n_err = await db.scalar(
-        select(func.count()).select_from(RawMessage).where(
-            RawMessage.created_at >= since,
-            RawMessage.parse_ok.is_(False),
-        )
-    )
     n_dev = await db.scalar(select(func.count()).select_from(Device))
     online = await active_connection_count()
     return templates.TemplateResponse(
@@ -71,7 +68,6 @@ async def page_index(request: Request, db: AsyncSession = Depends(get_db)):
             "online": online,
             "devices": n_dev or 0,
             "messages_last_hour": n_msg or 0,
-            "errors_last_hour": n_err or 0,
         },
     )
 
@@ -94,6 +90,8 @@ async def page_device_detail(
     dev = dr.scalar_one_or_none()
     if dev is None:
         raise HTTPException(404)
+    if cmd is not None:
+        cmd = cmd.strip() or None
     if cmd:
         q = (
             select(CommandEvent)
@@ -126,7 +124,7 @@ async def page_device_detail(
         "device_detail.html",
         {
             "device": dev,
-            "events": parsed_events,
+            "parsed_events": parsed_events,
             "filter_cmd": cmd or "",
             "lat": dev.last_lat,
             "lng": dev.last_lng,
