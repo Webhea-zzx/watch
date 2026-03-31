@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
+import zipfile
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from urllib.parse import quote
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -34,6 +36,28 @@ templates.env.globals["human_summary"] = summary_from_parsed
 
 # 手表详情页「当前数据」HTMX 轮询间隔（秒）
 DEVICE_LIVE_POLL_SECONDS = 15
+
+_CST = timezone(timedelta(hours=8))  # 固定 UTC+8（北京时间显示口径）
+
+
+def _parse_ymd(s: str) -> date:
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        raise HTTPException(400, detail="日期格式错误，请使用 YYYY-MM-DD")
+
+
+def _utc_range_from_cst_dates(start_s: str, end_s: str) -> tuple[datetime, datetime]:
+    """将北京时间自然日范围转换为 UTC（naive）闭开区间：[start, end_exclusive)。"""
+    start_d = _parse_ymd(start_s)
+    end_d = _parse_ymd(end_s)
+    if end_d < start_d:
+        raise HTTPException(400, detail="结束日期不能早于开始日期")
+    start_local = datetime.combine(start_d, datetime.min.time(), tzinfo=_CST)
+    end_local_exclusive = datetime.combine(end_d + timedelta(days=1), datetime.min.time(), tzinfo=_CST)
+    start_utc = start_local.astimezone(timezone.utc).replace(tzinfo=None)
+    end_utc_exclusive = end_local_exclusive.astimezone(timezone.utc).replace(tzinfo=None)
+    return start_utc, end_utc_exclusive
 
 
 async def _live_tiles_for_device(db: AsyncSession, device_id: str) -> list[dict]:
@@ -219,6 +243,66 @@ async def page_devices(request: Request, db: AsyncSession = Depends(get_db)):
     r = await db.execute(select(Device).order_by(Device.last_seen.desc()))
     devs = list(r.scalars())
     return templates.TemplateResponse(request, "devices.html", {"devices": devs})
+
+
+@app.get("/devices/export.zip", dependencies=[Depends(require_admin)])
+async def export_all_devices_zip(
+    start: str = Query(..., description="开始日期（北京时间，YYYY-MM-DD）"),
+    end: str = Query(..., description="结束日期（北京时间，YYYY-MM-DD，包含当天）"),
+    db: AsyncSession = Depends(get_db),
+):
+    start_utc, end_utc_excl = _utc_range_from_cst_dates(start, end)
+
+    r = await db.execute(
+        select(CommandEvent)
+        .where(CommandEvent.created_at >= start_utc, CommandEvent.created_at < end_utc_excl)
+        .order_by(CommandEvent.device_id.asc(), CommandEvent.created_at.asc())
+    )
+    rows = list(r.scalars())
+
+    # 用 spooled 临时文件避免大 ZIP 全部进内存
+    tmp = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024)
+    with zipfile.ZipFile(tmp, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "_说明.txt",
+            f"导出范围（北京时间）：{start} 至 {end}（包含结束日）\n"
+            f"记录总条数：{len(rows)}\n"
+            "每个手表一个 Excel，字段为客户可读中文说明；附件请回到后台手表详情中下载。\n",
+        )
+
+        by_dev: dict[str, list[CommandEvent]] = {}
+        for ev in rows:
+            by_dev.setdefault(ev.device_id, []).append(ev)
+
+        for device_id, events in by_dev.items():
+            body = build_device_history_xlsx(events)
+            safe = safe_filename_part(device_id)
+            ascii_name = f"watch_{safe}_{start}_{end}.xlsx"
+            zf.writestr(ascii_name, body)
+
+    tmp.seek(0)
+
+    def _iter_file():
+        try:
+            while True:
+                chunk = tmp.read(1024 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                tmp.close()
+            except Exception:
+                pass
+
+    ascii_zip = f"watch_all_{start}_{end}.zip"
+    utf8_zip = f"全部手表_{start}_{end}.zip"
+    cd = f'attachment; filename="{ascii_zip}"; filename*=UTF-8\'\'{quote(utf8_zip)}'
+    return StreamingResponse(
+        _iter_file(),
+        media_type="application/zip",
+        headers={"Content-Disposition": cd},
+    )
 
 
 @app.get(

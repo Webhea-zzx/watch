@@ -3,6 +3,74 @@
 {% block content %}
 <h1>全部手表</h1>
 
+<h2>导出</h2>
+<p class="help">按北京时间日期范围导出：每个手表一个 Excel，打包为 ZIP（内容为客户可读中文说明，不含原始报文）。</p>
+
+<form method="get" action="/devices/export.zip" class="filter-bar" onsubmit="return watchExportSubmit(this)">
+  <label>
+    开始日期
+    <input type="date" name="start" required />
+  </label>
+  <label>
+    结束日期（包含当天）
+    <input type="date" name="end" required />
+  </label>
+  <button type="submit" id="exportAllBtn">导出全部（ZIP）</button>
+</form>
+
+<dialog id="exportDialog" class="app-modal">
+  <div class="modal-head">
+    <strong>正在导出</strong>
+  </div>
+  <div class="modal-body">
+    <p style="margin:0; line-height: 1.55;">
+      正在生成并打包 ZIP。数据量较大时可能需要几分钟，请不要关闭页面。
+    </p>
+    <div class="modal-progress" aria-hidden="true"><span></span></div>
+    <p class="help" style="margin-top: 0.85rem;">
+      如果长时间无响应，请检查服务器负载或稍后缩小日期范围重试。
+    </p>
+  </div>
+</dialog>
+
+<script>
+  (function () {
+    function todayYMD() {
+      var d = new Date();
+      var m = String(d.getMonth() + 1).padStart(2, "0");
+      var day = String(d.getDate()).padStart(2, "0");
+      return d.getFullYear() + "-" + m + "-" + day;
+    }
+    function daysAgoYMD(n) {
+      var d = new Date();
+      d.setDate(d.getDate() - n);
+      var m = String(d.getMonth() + 1).padStart(2, "0");
+      var day = String(d.getDate()).padStart(2, "0");
+      return d.getFullYear() + "-" + m + "-" + day;
+    }
+    var start = document.querySelector('input[name="start"]');
+    var end = document.querySelector('input[name="end"]');
+    if (start && end && !start.value && !end.value) {
+      end.value = todayYMD();
+      start.value = daysAgoYMD(7);
+    }
+  })();
+
+  function watchExportSubmit(form) {
+    var btn = document.getElementById("exportAllBtn");
+    if (btn) {
+      btn.disabled = true;
+      btn.setAttribute("aria-busy", "true");
+      btn.textContent = "导出中…";
+    }
+    var dlg = document.getElementById("exportDialog");
+    if (dlg && typeof dlg.showModal === "function") {
+      try { dlg.showModal(); } catch (e) { /* ignore */ }
+    }
+    return true;
+  }
+</script>
+
 <div class="table-scroll">
 <table role="grid">
   <thead>
