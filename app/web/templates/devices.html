@@ -4,7 +4,7 @@
 <h1>全部手表</h1>
 
 <h2>导出</h2>
-<p class="help">按北京时间日期范围导出：每个手表一个 Excel，打包为 ZIP（内容为客户可读中文说明，不含原始报文）。</p>
+<p class="help">按北京时间日期范围导出：每个手表一个 Excel，打包为 ZIP。</p>
 
 <form method="get" action="/devices/export.zip" class="filter-bar" onsubmit="return watchExportSubmit(this)">
   <label>
@@ -17,21 +17,6 @@
   </label>
   <button type="submit" id="exportAllBtn">导出全部（ZIP）</button>
 </form>
-
-<dialog id="exportDialog" class="app-modal">
-  <div class="modal-head">
-    <strong>正在导出</strong>
-  </div>
-  <div class="modal-body">
-    <p style="margin:0; line-height: 1.55;">
-      正在生成并打包 ZIP。数据量较大时可能需要几分钟，请不要关闭页面。
-    </p>
-    <div class="modal-progress" aria-hidden="true"><span></span></div>
-    <p class="help" style="margin-top: 0.85rem;">
-      如果长时间无响应，请检查服务器负载或稍后缩小日期范围重试。
-    </p>
-  </div>
-</dialog>
 
 <script>
   (function () {
@@ -62,10 +47,11 @@
       btn.disabled = true;
       btn.setAttribute("aria-busy", "true");
       btn.textContent = "导出中…";
-    }
-    var dlg = document.getElementById("exportDialog");
-    if (dlg && typeof dlg.showModal === "function") {
-      try { dlg.showModal(); } catch (e) { /* ignore */ }
+      window.setTimeout(function () {
+        btn.disabled = false;
+        btn.removeAttribute("aria-busy");
+        btn.textContent = "导出全部（ZIP）";
+      }, 2500);
     }
     return true;
   }

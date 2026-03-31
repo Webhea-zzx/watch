@@ -337,65 +337,6 @@
       width: 100%;
     }
 
-    /* ========== 弹窗（导出中） ========== */
-    dialog.app-modal {
-      border: 1px solid var(--border-light);
-      border-radius: var(--radius);
-      padding: 0;
-      width: min(34rem, calc(100vw - 2rem));
-      box-shadow: var(--shadow-lg);
-      background: var(--surface);
-      color: var(--text);
-    }
-
-    dialog.app-modal::backdrop {
-      background: rgba(0, 0, 0, 0.38);
-      backdrop-filter: blur(2px);
-    }
-
-    .app-modal .modal-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: 1rem 1.25rem;
-      border-bottom: 1px solid var(--border-light);
-      background: linear-gradient(180deg, var(--surface-elevated) 0%, var(--surface) 100%);
-    }
-
-    .app-modal .modal-head strong {
-      font-size: 1.05rem;
-      font-weight: 800;
-      letter-spacing: -0.01em;
-    }
-
-    .app-modal .modal-body {
-      padding: 1rem 1.25rem 1.1rem;
-    }
-
-    .modal-progress {
-      margin-top: 0.85rem;
-      height: 10px;
-      border-radius: 999px;
-      background: rgba(13, 110, 124, 0.10);
-      overflow: hidden;
-      border: 1px solid rgba(13, 110, 124, 0.18);
-    }
-
-    .modal-progress > span {
-      display: block;
-      height: 100%;
-      width: 42%;
-      background: linear-gradient(90deg, #0a5c68 0%, #25a2b4 55%, #0a5c68 100%);
-      animation: modalbar 1.05s ease-in-out infinite;
-    }
-
-    @keyframes modalbar {
-      0%   { transform: translateX(-110%); width: 40%; }
-      50%  { transform: translateX(40%); width: 55%; }
-      100% { transform: translateX(220%); width: 40%; }
-    }
-
     .nav-pills .nav-logout {
       display: inline-flex;
       margin: 0;
