@@ -82,7 +82,6 @@ _ACK_SAME_AS_COMMAND = frozenset(
         "BEACON",
         "BEACONSTART",
         "LKSET",
-        "UPLOAD",
         "UDTIME",
         "CR",
         "LZ",
@@ -98,7 +97,6 @@ _ACK_SAME_AS_COMMAND = frozenset(
         "SETDND",
         "WHITELIST",
         "KEYPAD",
-        "SETDWMODE",
         "NOMOVESLP",
         "HRTSTART",
         "HRSETAL",
@@ -152,6 +150,11 @@ def build_replies(frame: ParsedFrame, parsed: dict, seq: OutboundSeq) -> list[by
 
     if cmd in ("CLOCKIN", "CLOCKOUT"):
         return [one(f"{cmd},1")]
+
+    # 平台主动下发 SETDWMODE/UPLOAD 后，终端常上行同名回执；若再以仅含指令名的载荷应答，
+    # 部分固件会再次上行，与平台形成死循环。此类上行不再自动下行应答。
+    if cmd in ("SETDWMODE", "UPLOAD"):
+        return []
 
     if cmd in _ACK_SAME_AS_COMMAND:
         return [one(cmd)]

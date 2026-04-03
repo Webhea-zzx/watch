@@ -17,6 +17,18 @@ def test_ud2_no_reply():
     assert reps == []
 
 
+def test_setdwmode_uplink_no_reply_avoids_ack_loop():
+    f = ParsedFrame("ZJ", "1", "0001", b"SETDWMODE,1")
+    reps = build_replies(f, {}, OutboundSeq())
+    assert reps == []
+
+
+def test_upload_uplink_no_reply_avoids_ack_loop():
+    f = ParsedFrame("ZJ", "1", "0001", b"UPLOAD,600")
+    reps = build_replies(f, {}, OutboundSeq())
+    assert reps == []
+
+
 def test_lk_reply_contains_lk():
     f = ParsedFrame("ZJ", "1", "0001", b"LK,1,0,100")
     reps = build_replies(f, {}, OutboundSeq())
