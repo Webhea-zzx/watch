@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from pathlib import Path
 
@@ -49,22 +48,3 @@ def get_amap_key() -> str:
     if s:
         return s
     return _get("AMAP_KEY", "").strip()
-
-
-def amap_ui_context() -> dict[str, str | bool]:
-    """配置页展示用（不含 Key 明文）。"""
-    stored = load_stored_amap_key()
-    env_k = os.environ.get("AMAP_KEY") or ""
-    env_set = bool(env_k.strip())
-    eff = get_amap_key()
-    if stored:
-        source = "本页已保存"
-    elif env_set:
-        source = "环境变量"
-    else:
-        source = "未配置"
-    return {
-        "amap_effective_configured": bool(eff.strip()),
-        "amap_source_label": source,
-        "amap_has_stored": bool(stored),
-    }

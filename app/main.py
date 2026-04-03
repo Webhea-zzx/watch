@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from urllib.parse import quote
 
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
@@ -104,12 +104,7 @@ CONFIG_UPLOAD_INTERVALS: list[dict[str, str | int]] = [
 assert {x["seconds"] for x in CONFIG_UPLOAD_INTERVALS} == ADMIN_UPLOAD_INTERVALS_SEC
 
 
-class AmapRevealBody(BaseModel):
-    admin_password: str = Field(..., min_length=1)
-
-
 class AmapSaveBody(BaseModel):
-    admin_password: str = Field(..., min_length=1)
     amap_key: str = ""
 
 
@@ -324,8 +319,9 @@ async def page_config_downlink(request: Request, db: AsyncSession = Depends(get_
     devs = list(r.scalars())
     reg = get_connection_registry()
     online_map = {d.device_id: await reg.is_online(d.device_id) for d in devs}
-    ctx = amap_key_store.amap_ui_context()
-    ctx.update(
+    return templates.TemplateResponse(
+        request,
+        "config_downlink.html",
         {
             "modes": CONFIG_LOCATION_MODES,
             "upload_intervals": CONFIG_UPLOAD_INTERVALS,
@@ -336,22 +332,12 @@ async def page_config_downlink(request: Request, db: AsyncSession = Depends(get_
             "last_mode": None,
             "last_interval": None,
             "selected_ids": frozenset(),
-        }
+        },
     )
-    return templates.TemplateResponse(request, "config_downlink.html", ctx)
-
-
-@app.post("/config/amap-key/reveal", dependencies=[Depends(require_admin)])
-async def api_amap_key_reveal(body: AmapRevealBody) -> JSONResponse:
-    if not auth_store.verify_login(auth_store.get_stored_username(), body.admin_password):
-        raise HTTPException(status_code=401, detail="管理员密码错误")
-    return JSONResponse({"key": amap_key_store.get_amap_key()})
 
 
 @app.post("/config/amap-key/save", dependencies=[Depends(require_admin)])
 async def api_amap_key_save(body: AmapSaveBody) -> JSONResponse:
-    if not auth_store.verify_login(auth_store.get_stored_username(), body.admin_password):
-        raise HTTPException(status_code=401, detail="管理员密码错误")
     amap_key_store.save_stored_amap_key(body.amap_key)
     return JSONResponse({"ok": True})
 
@@ -394,8 +380,9 @@ async def action_config_apply(request: Request, db: AsyncSession = Depends(get_d
                 continue
             results[did] = await reg.send_location_config(db, did, mode, interval_sec)
 
-    ctx = amap_key_store.amap_ui_context()
-    ctx.update(
+    return templates.TemplateResponse(
+        request,
+        "config_downlink.html",
         {
             "modes": CONFIG_LOCATION_MODES,
             "upload_intervals": CONFIG_UPLOAD_INTERVALS,
@@ -406,9 +393,8 @@ async def action_config_apply(request: Request, db: AsyncSession = Depends(get_d
             "last_mode": mode if mode in range(5) else None,
             "last_interval": interval_sec if interval_sec in ADMIN_UPLOAD_INTERVALS_SEC else None,
             "selected_ids": frozenset(device_ids),
-        }
+        },
     )
-    return templates.TemplateResponse(request, "config_downlink.html", ctx)
 
 
 @app.get("/devices/export.zip", dependencies=[Depends(require_admin)])

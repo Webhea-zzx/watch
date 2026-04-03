@@ -52,7 +52,7 @@ pip install -r requirements.txt
 | `WEB_AUTH_FILE` | `data/web_auth.json` | 登录凭据存储路径（含密码哈希，请备份并限制权限） |
 | `FILES_DIR` | `./data/files` | `SENDPHOTO` / `JXTK` 媒体落盘目录 |
 | `PLATFORM_TZ_OFFSET_HOURS` | `8` | `LGZONE` 回复中的时区偏移（相对 UTC） |
-| `AMAP_KEY` | （空） | 可选：**地图服务** Web API Key（当前实现对接常见国内地图开放平台 REST）。**本页保存优先**：在「配置下发」页粘贴保存（需管理员密码），写入 `data/amap_key.json`（可用 `AMAP_KEY_FILE` 改路径）；保存成功后页面会清空输入框，不在前台保留 Key。留空且未保存则不请求外网定位/逆地理 |
+| `AMAP_KEY` | （空） | 可选：**地图服务** Web API Key（当前实现对接常见国内地图开放平台 REST）。**本页保存优先**：登录后台后在「配置下发」页保存，写入 `data/amap_key.json`（可用 `AMAP_KEY_FILE` 改路径）。留空且未保存则不请求外网定位/逆地理 |
 | `AMAP_KEY_FILE` | `data/amap_key.json` | 本页保存的地图服务 Key 文件路径 |
 
 ## 运行（本机调试）
