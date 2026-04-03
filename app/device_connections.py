@@ -66,6 +66,23 @@ class ConnectionRegistry:
                 return False
             return not b.writer.is_closing()
 
+    async def list_online_devices(self) -> list[dict[str, str]]:
+        """当前仍有效的 TCP 绑定（按 device_id 去重，每设备一条）。"""
+        async with self._lock:
+            rows: list[dict[str, str]] = []
+            for device_id, b in self._by_device.items():
+                if b.writer.is_closing():
+                    continue
+                rows.append(
+                    {
+                        "device_id": device_id,
+                        "vendor": b.vendor,
+                        "connection_id": b.conn_id,
+                    }
+                )
+            rows.sort(key=lambda x: x["device_id"])
+            return rows
+
     async def send_location_config(
         self,
         db: AsyncSession,

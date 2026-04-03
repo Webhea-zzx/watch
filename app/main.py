@@ -22,7 +22,7 @@ from app.config import SECRET_KEY, TCP_HOST, TCP_PORT
 from app.db.models import CommandEvent, Device, RawMessage
 from app.db.session import init_db
 from app.device_connections import ADMIN_UPLOAD_INTERVALS_SEC, get_connection_registry
-from app.tcp_server import active_connection_count, handle_client
+from app.tcp_server import handle_client
 from app.web.auth_deps import require_admin
 from app.web import amap_key_store, auth_store
 from app.web.deps import get_db
@@ -294,7 +294,8 @@ async def page_index(request: Request, db: AsyncSession = Depends(get_db)):
     since = datetime.utcnow() - timedelta(hours=1)
     n_msg = await db.scalar(select(func.count()).select_from(RawMessage).where(RawMessage.created_at >= since))
     n_dev = await db.scalar(select(func.count()).select_from(Device))
-    online = await active_connection_count()
+    reg = get_connection_registry()
+    online = len(await reg.list_online_devices())
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -311,6 +312,17 @@ async def page_devices(request: Request, db: AsyncSession = Depends(get_db)):
     r = await db.execute(select(Device).order_by(Device.last_seen.desc()))
     devs = list(r.scalars())
     return templates.TemplateResponse(request, "devices.html", {"devices": devs})
+
+
+@app.get("/devices/online", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def page_devices_online(request: Request):
+    reg = get_connection_registry()
+    rows = await reg.list_online_devices()
+    return templates.TemplateResponse(
+        request,
+        "devices_online.html",
+        {"rows": rows, "count": len(rows)},
+    )
 
 
 @app.get("/config", response_class=HTMLResponse, dependencies=[Depends(require_admin)])

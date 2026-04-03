@@ -13,7 +13,7 @@ from app.config import FILES_DIR
 from app.db.models import CommandEvent, Device, RawMessage
 from app.web.auth_deps import require_admin
 from app.web.deps import get_db
-from app.tcp_server import active_connection_count
+from app.device_connections import get_connection_registry
 
 router = APIRouter()
 
@@ -28,7 +28,8 @@ async def api_stats(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     since = datetime.utcnow() - timedelta(hours=1)
     n_msg = await db.scalar(select(func.count()).select_from(RawMessage).where(RawMessage.created_at >= since))
     n_dev = await db.scalar(select(func.count()).select_from(Device))
-    online = await active_connection_count()
+    reg = get_connection_registry()
+    online = len(await reg.list_online_devices())
     return JSONResponse(
         {
             "online_connections": online,
