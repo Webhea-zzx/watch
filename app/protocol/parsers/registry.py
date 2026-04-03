@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from app.protocol.escape import unescape_jxtk
+from app.protocol.ud_fingerprint import parse_ud_lbs_wifi
 
 
 def _text(payload: bytes) -> str:
@@ -61,12 +62,17 @@ def _parse_ud_family(payload: bytes, name: str) -> dict[str, Any]:
     t = _text(payload)
     parts = _csv(t)
     d: dict[str, Any] = {"command": name, "parts": parts}
+    d["gps_valid"] = False
     if len(parts) > 4 and parts[3].upper() == "A":
         try:
-            d["lat"] = float(parts[4])
-            d["lng"] = float(parts[6]) if len(parts) > 6 else None
+            la = float(parts[4])
+            lo = float(parts[6]) if len(parts) > 6 else None
+            d["lat"] = la
+            d["lng"] = lo
             d["lat_dir"] = parts[5] if len(parts) > 5 else None
             d["lng_dir"] = parts[7] if len(parts) > 7 else None
+            if lo is not None and abs(la) >= 1e-5 and abs(float(lo)) >= 1e-5:
+                d["gps_valid"] = True
         except (ValueError, IndexError):
             pass
     if len(parts) > 1:
@@ -75,6 +81,7 @@ def _parse_ud_family(payload: bytes, name: str) -> dict[str, Any]:
         d["time"] = parts[2]
     if len(parts) > 14:
         d["terminal_status_hex"] = parts[14]
+    d["lbs_wifi"] = parse_ud_lbs_wifi(parts)
     return d
 
 

@@ -1,6 +1,6 @@
 # 儿童手表 / 终端协议 TCP 网关（V4.2）
 
-本仓库实现《设备通信协议 V4.2》的 **TCP 接收**、**按长度字段组帧**、**指令解析与平台侧默认应答**，以及基于 FastAPI + Jinja2 + HTMX 的 **Web 管理界面**（设备列表、报文流、指令 JSON、UD 坐标地图、媒体下载）。
+本仓库实现《设备通信协议 V4.2》的 **TCP 接收**、**按长度字段组帧**、**指令解析与平台侧默认应答**，以及基于 FastAPI + Jinja2 + HTMX 的 **Web 管理界面**（设备列表、报文流、指令 JSON、**文本位置（地图服务可选）**、媒体下载）。
 
 ## 目录说明
 
@@ -18,7 +18,7 @@
 
 | 存什么 | 存在哪 | 说明 |
 |--------|--------|------|
-| 每台手表档案 | SQLite 表 `devices` | 编号、厂商、首次/最后在线、上次电量、上次经纬度等 |
+| 每台手表档案 | SQLite 表 `devices` | 编号、厂商、首次/最后在线、上次电量、卫星/网络定位快照与展示用坐标、地址文本等 |
 | 每一条原始通信 | SQLite 表 `raw_messages` | 方向（手表→服务器 / 服务器→手表）、完整一帧文本、时间、是否解析成功 |
 | 按指令解析后的摘要 | SQLite 表 `command_events` | 指令名、流水号、结构化 JSON 摘要、可选十六进制预览 |
 | 照片 / 语音附件 | 目录 `data/files/`（可用 `FILES_DIR` 改） | `SENDPHOTO`、终端上报的 `JXTK` 音频等二进制落盘；库里记文件路径 |
@@ -52,6 +52,8 @@ pip install -r requirements.txt
 | `WEB_AUTH_FILE` | `data/web_auth.json` | 登录凭据存储路径（含密码哈希，请备份并限制权限） |
 | `FILES_DIR` | `./data/files` | `SENDPHOTO` / `JXTK` 媒体落盘目录 |
 | `PLATFORM_TZ_OFFSET_HOURS` | `8` | `LGZONE` 回复中的时区偏移（相对 UTC） |
+| `AMAP_KEY` | （空） | 可选：**地图服务** Web API Key（当前实现对接常见国内地图开放平台 REST）。**本页保存优先**：在「配置下发」页粘贴保存（需管理员密码），写入 `data/amap_key.json`（可用 `AMAP_KEY_FILE` 改路径）；保存成功后页面会清空输入框，不在前台保留 Key。留空且未保存则不请求外网定位/逆地理 |
+| `AMAP_KEY_FILE` | `data/amap_key.json` | 本页保存的地图服务 Key 文件路径 |
 
 ## 运行（本机调试）
 

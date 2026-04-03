@@ -22,6 +22,21 @@ class Device(Base):
     last_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_loc_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 卫星定位（WGS84，与协议一致）
+    last_gps_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_gps_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_gps_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_gps_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 网络定位（国内地图常用 GCJ-02）
+    last_net_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_net_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_net_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_net_radius: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_net_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 列表/详情当前展示：gps / net
+    last_display_source: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # 每条定位类上报处理完后递增，用于丢弃过期的地图异步写入
+    location_apply_seq: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
 class RawMessage(Base):

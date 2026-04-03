@@ -9,9 +9,11 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from urllib.parse import quote
+
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
@@ -19,11 +21,13 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.config import SECRET_KEY, TCP_HOST, TCP_PORT
 from app.db.models import CommandEvent, Device, RawMessage
 from app.db.session import init_db
+from app.device_connections import ADMIN_UPLOAD_INTERVALS_SEC, get_connection_registry
 from app.tcp_server import active_connection_count, handle_client
 from app.web.auth_deps import require_admin
-from app.web import auth_store
+from app.web import amap_key_store, auth_store
 from app.web.deps import get_db
 from app.web.humanize import summarize_raw_frame, summary_from_parsed
+from app.web.location_display import device_location_text
 from app.web.routes import router as api_router
 from app.web.export_device_xlsx import build_device_history_xlsx, safe_filename_part
 from app.web.timefmt import format_local_time
@@ -33,11 +37,80 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["human_frame"] = summarize_raw_frame
 templates.env.filters["local_time"] = format_local_time
 templates.env.globals["human_summary"] = summary_from_parsed
+templates.env.globals["device_location_text"] = device_location_text
 
 # 手表详情页「当前数据」HTMX 轮询间隔（秒）
 DEVICE_LIVE_POLL_SECONDS = 15
 
 _CST = timezone(timedelta(hours=8))  # 固定 UTC+8（北京时间显示口径）
+
+# 配置下发页：定位优先模式（对应协议 SETDWMODE 取值 0–4，页面上不展示协议细节）
+CONFIG_LOCATION_MODES: list[dict[str, str | int]] = [
+    {
+        "value": 0,
+        "title": "无线网络优先",
+        "hint": "优先用周边无线网络判断位置，其次卫星，再基站。室内通常更稳。",
+    },
+    {
+        "value": 1,
+        "title": "卫星定位优先",
+        "hint": "优先卫星定位，其次无线网络，再基站。室外通常更准。",
+    },
+    {"value": 2, "title": "仅用基站", "hint": "只根据基站估算位置。"},
+    {
+        "value": 3,
+        "title": "无线网络与基站",
+        "hint": "结合无线网络与基站，不优先卫星。",
+    },
+    {
+        "value": 4,
+        "title": "卫星与基站",
+        "hint": "结合卫星与基站，不优先无线网络。",
+    },
+]
+
+# 配置下发页：位置上报间隔（协议 UPLOAD，单位为秒；页面上只显示通俗间隔）
+CONFIG_UPLOAD_INTERVALS: list[dict[str, str | int]] = [
+    {
+        "seconds": 180,
+        "title": "每 3 分钟上报一次",
+        "hint": "较费电，设备可能长时间开启卫星定位。",
+    },
+    {
+        "seconds": 300,
+        "title": "每 5 分钟上报一次",
+        "hint": "上报较频繁，耗电适中偏高。",
+    },
+    {
+        "seconds": 600,
+        "title": "每 10 分钟上报一次",
+        "hint": "适合日常佩戴，省电与及时性的折中。",
+    },
+    {
+        "seconds": 900,
+        "title": "每 15 分钟上报一次",
+        "hint": "更省电，位置更新略慢。",
+    },
+    {
+        "seconds": 1800,
+        "title": "每 30 分钟上报一次",
+        "hint": "省电优先。",
+    },
+    {"seconds": 3600, "title": "每 1 小时上报一次", "hint": "省电优先。"},
+    {"seconds": 7200, "title": "每 2 小时上报一次", "hint": "省电优先。"},
+    {"seconds": 14400, "title": "每 4 小时上报一次", "hint": "省电优先。"},
+]
+
+assert {x["seconds"] for x in CONFIG_UPLOAD_INTERVALS} == ADMIN_UPLOAD_INTERVALS_SEC
+
+
+class AmapRevealBody(BaseModel):
+    admin_password: str = Field(..., min_length=1)
+
+
+class AmapSaveBody(BaseModel):
+    admin_password: str = Field(..., min_length=1)
+    amap_key: str = ""
 
 
 def _parse_ymd(s: str) -> date:
@@ -245,6 +318,99 @@ async def page_devices(request: Request, db: AsyncSession = Depends(get_db)):
     return templates.TemplateResponse(request, "devices.html", {"devices": devs})
 
 
+@app.get("/config", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def page_config_downlink(request: Request, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(Device).order_by(Device.last_seen.desc()))
+    devs = list(r.scalars())
+    reg = get_connection_registry()
+    online_map = {d.device_id: await reg.is_online(d.device_id) for d in devs}
+    ctx = amap_key_store.amap_ui_context()
+    ctx.update(
+        {
+            "modes": CONFIG_LOCATION_MODES,
+            "upload_intervals": CONFIG_UPLOAD_INTERVALS,
+            "devices": devs,
+            "online_map": online_map,
+            "results": {},
+            "form_error": None,
+            "last_mode": None,
+            "last_interval": None,
+            "selected_ids": frozenset(),
+        }
+    )
+    return templates.TemplateResponse(request, "config_downlink.html", ctx)
+
+
+@app.post("/config/amap-key/reveal", dependencies=[Depends(require_admin)])
+async def api_amap_key_reveal(body: AmapRevealBody) -> JSONResponse:
+    if not auth_store.verify_login(auth_store.get_stored_username(), body.admin_password):
+        raise HTTPException(status_code=401, detail="管理员密码错误")
+    return JSONResponse({"key": amap_key_store.get_amap_key()})
+
+
+@app.post("/config/amap-key/save", dependencies=[Depends(require_admin)])
+async def api_amap_key_save(body: AmapSaveBody) -> JSONResponse:
+    if not auth_store.verify_login(auth_store.get_stored_username(), body.admin_password):
+        raise HTTPException(status_code=401, detail="管理员密码错误")
+    amap_key_store.save_stored_amap_key(body.amap_key)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/config/apply", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def action_config_apply(request: Request, db: AsyncSession = Depends(get_db)):
+    form = await request.form()
+    raw_ids = form.getlist("device_ids")
+    device_ids = [str(x).strip() for x in raw_ids if str(x).strip()]
+    mode_s = form.get("mode")
+    try:
+        mode = int(mode_s) if mode_s is not None else -1
+    except (TypeError, ValueError):
+        mode = -1
+
+    interval_s = form.get("interval")
+    try:
+        interval_sec = int(interval_s) if interval_s is not None else -1
+    except (TypeError, ValueError):
+        interval_sec = -1
+
+    r = await db.execute(select(Device).order_by(Device.last_seen.desc()))
+    devs = list(r.scalars())
+    valid_ids = {d.device_id for d in devs}
+    reg = get_connection_registry()
+    online_map = {d.device_id: await reg.is_online(d.device_id) for d in devs}
+
+    results: dict[str, str] = {}
+    form_error: str | None = None
+    if not device_ids:
+        form_error = "请至少选择一台设备。"
+    elif mode not in range(5):
+        form_error = "请选择一个有效的定位方式。"
+    elif interval_sec not in ADMIN_UPLOAD_INTERVALS_SEC:
+        form_error = "请选择一个有效的上报间隔。"
+    else:
+        for did in device_ids:
+            if did not in valid_ids:
+                results[did] = "不在设备列表中"
+                continue
+            results[did] = await reg.send_location_config(db, did, mode, interval_sec)
+
+    ctx = amap_key_store.amap_ui_context()
+    ctx.update(
+        {
+            "modes": CONFIG_LOCATION_MODES,
+            "upload_intervals": CONFIG_UPLOAD_INTERVALS,
+            "devices": devs,
+            "online_map": online_map,
+            "results": results,
+            "form_error": form_error,
+            "last_mode": mode if mode in range(5) else None,
+            "last_interval": interval_sec if interval_sec in ADMIN_UPLOAD_INTERVALS_SEC else None,
+            "selected_ids": frozenset(device_ids),
+        }
+    )
+    return templates.TemplateResponse(request, "config_downlink.html", ctx)
+
+
 @app.get("/devices/export.zip", dependencies=[Depends(require_admin)])
 async def export_all_devices_zip(
     start: str = Query(..., description="开始日期（北京时间，YYYY-MM-DD）"),
@@ -383,8 +549,6 @@ async def page_device_detail(
             "live_tiles": live_tiles,
             "live_poll_seconds": DEVICE_LIVE_POLL_SECONDS,
             "filter_cmd": cmd or "",
-            "lat": dev.last_lat,
-            "lng": dev.last_lng,
         },
     )
 

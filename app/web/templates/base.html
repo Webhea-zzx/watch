@@ -825,6 +825,7 @@
       {% if request.session.get('admin_ok') %}
       <a href="/" {% if path == '/' or path == '' %}aria-current="page"{% endif %}>总览</a>
       <a href="/devices" {% if path.startswith('/devices') %}aria-current="page"{% endif %}>全部手表</a>
+      <a href="/config" {% if path.startswith('/config') %}aria-current="page"{% endif %}>配置下发</a>
       <a href="/account/password" {% if path.startswith('/account/') %}aria-current="page"{% endif %}>修改密码</a>
       <form method="post" action="/logout" class="nav-logout">
         <button type="submit">退出</button>

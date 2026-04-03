@@ -1,11 +1,6 @@
 {% extends "base.html" %}
 {% import "macros.html" as human %}
-{% block extra_head %}
-{% if lat is not none and lng is not none %}
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-{% endif %}
-{% endblock %}
+{% block extra_head %}{% endblock %}
 {% block title %}手表 {{ device.device_id }} — 手表数据后台{% endblock %}
 {% block content %}
 <h1>手表详情</h1>
@@ -55,23 +50,9 @@
   <a href="/devices/{{ device.device_id }}" role="button" class="secondary">清除</a>
 </form>
 
-{% if lat is not none and lng is not none %}
-<h2>地图</h2>
-<p>纬度 {{ "%.6f"|format(lat) }} · 经度 {{ "%.6f"|format(lng) }}</p>
-<div id="map" class="map-embed"></div>
-<script>
-  (function () {
-    var lat = {{ lat }};
-    var lng = {{ lng }};
-    var m = L.map('map').setView([lat, lng], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: 'OSM' }).addTo(m);
-    L.marker([lat, lng]).addTo(m);
-  })();
-</script>
-{% else %}
-<h2>地图</h2>
-<p class="muted">无定位</p>
-{% endif %}
+<h2>当前位置</h2>
+<p class="page-intro" style="margin-bottom:0.5rem;">文本展示：有卫星定位时优先显示卫星；无卫星时显示网络估算。在「配置下发」页保存地图服务 API Key 后可显示街道级地址。</p>
+<p style="font-size:1.05rem;line-height:1.65;margin:0;">{{ device_location_text(device) }}</p>
 
 <h2>历史记录</h2>
 <div class="table-scroll">
