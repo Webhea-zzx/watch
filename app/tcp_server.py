@@ -140,17 +140,16 @@ async def process_inbound_frame(
         )
     )
 
-    session.add(
-        CommandEvent(
-            device_id=frame.device_id,
-            vendor=frame.vendor,
-            seq=frame.seq,
-            command=cmd,
-            summary_json=summary_json,
-            media_path=media_path,
-            payload_hex_preview=preview,
-        )
+    cmd_event = CommandEvent(
+        device_id=frame.device_id,
+        vendor=frame.vendor,
+        seq=frame.seq,
+        command=cmd,
+        summary_json=summary_json,
+        media_path=media_path,
+        payload_hex_preview=preview,
     )
+    session.add(cmd_event)
 
     replies = build_replies(frame, parsed, outbound_seq)
 
@@ -180,7 +179,10 @@ async def process_inbound_frame(
     ):
         asyncio.create_task(
             schedule_amap_location_enrich(
-                frame.device_id, copy.deepcopy(parsed), location_apply_seq
+                frame.device_id,
+                copy.deepcopy(parsed),
+                location_apply_seq,
+                cmd_event.id,
             )
         )
 

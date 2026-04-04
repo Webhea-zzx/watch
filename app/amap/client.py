@@ -100,13 +100,28 @@ def _macs_segment(wifi: list[dict[str, str]]) -> str | None:
     return "|".join(parts)
 
 
+def _iot_position_block(data: dict[str, Any]) -> dict[str, Any]:
+    """解析 2.0 返回的 position（可能是对象或单元素数组）。"""
+    pos = data.get("position")
+    if isinstance(pos, list):
+        for p in pos:
+            if isinstance(p, dict) and p.get("location"):
+                return p
+        if pos and isinstance(pos[0], dict):
+            return pos[0]
+        return {}
+    if isinstance(pos, dict):
+        return pos
+    return {}
+
+
 async def amap_iot_locate(
     key: str,
     cells: list[dict[str, str]],
     wifi: list[dict[str, str]],
     diu: str,
-) -> tuple[float, float, int] | None:
-    """返回 (lng, lat, radius) GCJ-02，失败返回 None。"""
+) -> tuple[float, float, int, str | None] | None:
+    """返回 (lng, lat, radius, 可选结构化地址/描述) GCJ-02；失败返回 None。"""
     if not key.strip():
         return None
     bts, nearbts = _bts_segment(cells)
@@ -160,20 +175,38 @@ async def amap_iot_locate(
     if str(data.get("status")) != "1":
         logger.warning("地图 IoT 定位业务失败 info=%s", data.get("info"))
         return None
-    pos = data.get("position") or {}
+
+    pos = _iot_position_block(data)
     loc = pos.get("location")
-    if not loc or "," not in str(loc):
+    if not loc:
+        logger.warning(
+            "地图 IoT 返回成功但无坐标 diu=%s data_keys=%s position=%s",
+            diu,
+            list(data.keys()),
+            pos,
+        )
+        return None
+    loc_s = str(loc).strip().replace(" ", "")
+    if "," not in loc_s:
+        logger.warning("地图 IoT location 格式异常 diu=%s loc=%s", diu, loc)
         return None
     try:
-        lng_s, lat_s = str(loc).split(",", 1)
+        lng_s, lat_s = loc_s.split(",", 1)
         lng, lat = float(lng_s), float(lat_s)
     except ValueError:
+        logger.warning("地图 IoT location 无法解析为浮点 diu=%s loc=%s", diu, loc)
         return None
     try:
         radius = int(pos.get("radius", 0))
     except (TypeError, ValueError):
         radius = 0
-    return lng, lat, radius
+    addr_hint: str | None = None
+    for k in ("formatted_address", "desc", "poi"):
+        v = pos.get(k)
+        if v and str(v).strip():
+            addr_hint = str(v).strip()
+            break
+    return lng, lat, radius, addr_hint
 
 
 async def amap_regeo(key: str, lng: float, lat: float) -> str | None:

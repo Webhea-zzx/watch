@@ -65,7 +65,12 @@ def summary_from_parsed(cmd: str, d: dict) -> str:
         return "已收到心跳数据"
 
     if c in ("UD", "UD2", "AL"):
+        rev = (d.get("reverse_address") or "").strip()
         lat, lng = d.get("lat"), d.get("lng")
+        if rev:
+            if lat is not None and lng is not None:
+                return f"{rev}（纬度 {lat}，经度 {lng}）"
+            return rev
         if lat is not None and lng is not None:
             return f"纬度 {lat}，经度 {lng}（可在地图查看）"
         return "已收到定位相关信息（可能为基站或 WiFi，未含经纬度）"
@@ -125,8 +130,11 @@ def summary_from_parsed(cmd: str, d: dict) -> str:
     if c == "JXTKQ":
         return "语音微聊能力查询"
 
-    if c in ("WT", "GETLOC", "CR"):
+    if c in ("WT", "GETLOC", "CR", "CLOCKIN", "CLOCKOUT"):
         label = data_type_label(c)
+        rev = (d.get("reverse_address") or "").strip()
+        if rev:
+            return f"{label}：{rev}"
         if len(parts) > 3:
             tail = "，".join(_clip(str(x), 32) for x in parts[1:5] if str(x))
             return f"{label}：{tail}" if tail else f"已收到「{label}」数据"
