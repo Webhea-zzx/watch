@@ -41,6 +41,20 @@ def data_type_label(cmd: str) -> str:
     return _DATA_TYPE_CN.get(c, f"指令「{c}」")
 
 
+def _coords_meaningful(lat: object, lng: object) -> bool:
+    """排除终端常用的 (0,0) 占位；允许仅纬度或仅经度一侧接近 0（赤道/本初子午线）。"""
+    if lat is None or lng is None:
+        return False
+    try:
+        la = float(lat)
+        lo = float(lng)
+    except (TypeError, ValueError):
+        return False
+    if abs(la) < 1e-4 and abs(lo) < 1e-4:
+        return False
+    return abs(la) >= 1e-4 or abs(lo) >= 1e-4
+
+
 def _clip(s: str, n: int = 48) -> str:
     s = (s or "").strip()
     if len(s) <= n:
@@ -68,12 +82,12 @@ def summary_from_parsed(cmd: str, d: dict) -> str:
         rev = (d.get("reverse_address") or "").strip()
         lat, lng = d.get("lat"), d.get("lng")
         if rev:
-            if lat is not None and lng is not None:
+            if _coords_meaningful(lat, lng):
                 return f"{rev}（纬度 {lat}，经度 {lng}）"
             return rev
-        if lat is not None and lng is not None:
+        if _coords_meaningful(lat, lng):
             return f"纬度 {lat}，经度 {lng}（可在地图查看）"
-        return "已收到定位相关信息（可能为基站或 WiFi，未含经纬度）"
+        return "已收到定位相关信息（可能为基站或 WiFi，未含有效经纬度；地址在配置地图 Key 后将异步补充）"
 
     if c == "INIT":
         fw = d.get("firmware")

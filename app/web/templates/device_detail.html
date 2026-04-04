@@ -50,6 +50,7 @@
   <button type="submit">筛选</button>
   <a href="/devices/{{ device.device_id }}" role="button" class="secondary">清除</a>
 </form>
+<p class="help muted" style="margin-top:0.35rem;">「补传定位」仅包含终端实际上报的 <code>UD2</code>。若此处为空，多为设备只发实时 <code>UD</code>、未产生离线补传，并非列表故障。</p>
 
 <h2>当前位置</h2>
 <p class="page-intro" style="margin-bottom:0.5rem;">文本展示：有卫星定位时优先显示卫星；无卫星时显示网络估算。在「配置下发」页保存地图服务 API Key 后可显示街道级地址。</p>

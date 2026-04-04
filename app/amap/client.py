@@ -100,6 +100,46 @@ def _macs_segment(wifi: list[dict[str, str]]) -> str | None:
     return "|".join(parts)
 
 
+def _regeocode_address_text(rege: dict[str, Any]) -> str | None:
+    """优先 formatted_address；为空时用 addressComponent 拼中文地址。"""
+    fa = rege.get("formatted_address")
+    if fa is not None and str(fa).strip():
+        return str(fa).strip()
+    ac = rege.get("addressComponent")
+    if not isinstance(ac, dict):
+        return None
+    chunks: list[str] = []
+    seen: set[str] = set()
+    for key in ("province", "city", "district", "township"):
+        v = ac.get(key)
+        if not v or not isinstance(v, str):
+            continue
+        s = v.strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        chunks.append(s)
+    sn = ac.get("streetNumber")
+    if isinstance(sn, dict):
+        st = sn.get("street")
+        if st and str(st).strip():
+            t = str(st).strip()
+            if t not in seen:
+                seen.add(t)
+                chunks.append(t)
+        num = sn.get("number")
+        if num and str(num).strip():
+            chunks.append(str(num).strip())
+    street = ac.get("street")
+    if street and isinstance(street, str) and street.strip():
+        t = street.strip()
+        if t not in seen:
+            chunks.append(t)
+    if chunks:
+        return "".join(chunks)
+    return None
+
+
 def _iot_position_block(data: dict[str, Any]) -> dict[str, Any]:
     """解析 2.0 返回的 position（可能是对象或单元素数组）。"""
     pos = data.get("position")
@@ -115,67 +155,38 @@ def _iot_position_block(data: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-async def amap_iot_locate(
+def _iot_wifi_primary_query(
     key: str,
-    cells: list[dict[str, str]],
     wifi: list[dict[str, str]],
+    macs: str | None,
     diu: str,
-) -> tuple[float, float, int, str | None] | None:
-    """返回 (lng, lat, radius, 可选结构化地址/描述) GCJ-02；失败返回 None。"""
-    if not key.strip():
-        return None
-    bts, nearbts = _bts_segment(cells)
-    macs = _macs_segment(wifi)
-    # 仅基站、或仅 WiFi（含单热点 mmac）均可尝试
-    if not bts and not wifi:
-        return None
-
+) -> dict[str, Any]:
     q: dict[str, Any] = {
         "key": key.strip(),
         "cdma": "0",
         "diu": diu[:32],
         "output": "json",
+        "accesstype": "2",
+        "network": "GSM",
     }
-    if bts:
-        # 2.0：1=移动网络，2=wifi；移动网络须 cdma、network、bts
-        q["accesstype"] = "1"
-        q["network"] = _network_for_cells(cells)
-        q["bts"] = bts
-        if nearbts:
-            q["nearbts"] = nearbts
-        if macs:
-            q["macs"] = macs
-    else:
-        q["accesstype"] = "2"
-        q["network"] = "GSM"
-        w0 = wifi[0]
-        m = (w0.get("mac") or "").strip().lower().replace("-", ":")
-        try:
-            r0 = int(w0.get("rssi", "-80"))
-        except ValueError:
-            r0 = -80
-        ss0 = (w0.get("name") or " ").strip() or " "
-        if "," in ss0 or "|" in ss0:
-            ss0 = " "
-        # mmac：mac,signal,ssid,fresh（fresh 秒，默认 0）
-        q["mmac"] = f"{m},{r0},{ss0},0"
-        if macs:
-            q["macs"] = macs
-
-    # 智能硬件定位 2.0 文档：POST；参数 application/x-www-form-urlencoded
+    w0 = wifi[0]
+    m = (w0.get("mac") or "").strip().lower().replace("-", ":")
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            r = await client.post(IOT_URL, data=q)
-            r.raise_for_status()
-            data = r.json()
-    except Exception:
-        logger.exception("地图 IoT 定位请求失败 diu=%s", diu)
-        return None
+        r0 = int(w0.get("rssi", "-80"))
+    except ValueError:
+        r0 = -80
+    ss0 = (w0.get("name") or " ").strip() or " "
+    if "," in ss0 or "|" in ss0:
+        ss0 = " "
+    q["mmac"] = f"{m},{r0},{ss0},0"
+    if macs:
+        q["macs"] = macs
+    return q
 
-    if str(data.get("status")) != "1":
-        logger.warning("地图 IoT 定位业务失败 info=%s", data.get("info"))
-        return None
 
+def _iot_tuple_from_response(
+    data: dict[str, Any], diu: str
+) -> tuple[float, float, int, str | None] | None:
     pos = _iot_position_block(data)
     loc = pos.get("location")
     if not loc:
@@ -209,6 +220,77 @@ async def amap_iot_locate(
     return lng, lat, radius, addr_hint
 
 
+async def _iot_post_json(client: httpx.AsyncClient, q: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        r = await client.post(IOT_URL, data=q)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        logger.exception("地图 IoT 定位 HTTP 失败")
+        return None
+
+
+async def amap_iot_locate(
+    key: str,
+    cells: list[dict[str, str]],
+    wifi: list[dict[str, str]],
+    diu: str,
+) -> tuple[float, float, int, str | None] | None:
+    """返回 (lng, lat, radius, 可选结构化地址/描述) GCJ-02；失败返回 None。"""
+    if not key.strip():
+        return None
+    bts, nearbts = _bts_segment(cells)
+    macs = _macs_segment(wifi)
+    if not bts and not wifi:
+        return None
+
+    attempts: list[dict[str, Any]] = []
+    base = {"key": key.strip(), "cdma": "0", "diu": diu[:32], "output": "json"}
+    if bts:
+        q_cell: dict[str, Any] = {
+            **base,
+            "accesstype": "1",
+            "network": _network_for_cells(cells),
+            "bts": bts,
+        }
+        if nearbts:
+            q_cell["nearbts"] = nearbts
+        if macs:
+            q_cell["macs"] = macs
+        attempts.append(q_cell)
+    if wifi:
+        attempts.append(_iot_wifi_primary_query(key, wifi, macs, diu))
+    if not attempts:
+        return None
+    # 避免基站与 WiFi 提交完全相同的两份：无基站时只有一个 wifi query
+    uniq: list[dict[str, Any]] = []
+    seen_sig: set[tuple[tuple[str, str], ...]] = set()
+    for q in attempts:
+        sig = tuple(sorted((str(k), str(v)) for k, v in q.items()))
+        if sig in seen_sig:
+            continue
+        seen_sig.add(sig)
+        uniq.append(q)
+
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        for i, q in enumerate(uniq):
+            data = await _iot_post_json(client, q)
+            if not data:
+                continue
+            if str(data.get("status")) != "1":
+                logger.warning(
+                    "地图 IoT 定位业务失败 info=%s diu=%s attempt=%s",
+                    data.get("info"),
+                    diu,
+                    i + 1,
+                )
+                continue
+            tup = _iot_tuple_from_response(data, diu)
+            if tup:
+                return tup
+    return None
+
+
 async def amap_regeo(key: str, lng: float, lat: float) -> str | None:
     """输入 GCJ-02 经纬度，返回结构化地址文本。"""
     if not key.strip():
@@ -233,5 +315,4 @@ async def amap_regeo(key: str, lng: float, lat: float) -> str | None:
         logger.warning("地图逆地理业务失败 info=%s", data.get("info"))
         return None
     rege = data.get("regeocode") or {}
-    addr = rege.get("formatted_address")
-    return str(addr).strip() if addr else None
+    return _regeocode_address_text(rege)

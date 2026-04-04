@@ -59,6 +59,11 @@ async def _merge_event_reverse_address(event_id: int, addr: str) -> None:
         d["reverse_address"] = text
         ev.summary_json = json.dumps(d, ensure_ascii=False)
         await session.commit()
+        logger.info(
+            "历史记录已写入逆地理地址 command_event_id=%s len=%s",
+            event_id,
+            len(text),
+        )
 
 
 async def _enrich_device_with_amap(
