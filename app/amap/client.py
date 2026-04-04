@@ -33,13 +33,17 @@ def _bts_signal_dbm(raw: str) -> int:
 
 
 def _network_for_cells(cells: list[dict[str, str]]) -> str:
-    """智能硬件定位 2.0：network 取值 GSM/WCDMA/NR 等；大 cellid 常见于 LTE。"""
+    """智能硬件定位 2.0：network 仅允许 GSM/GPRS/EDGE/HSUPA/HSDPA/WCDMA/NR（文档无 LTE）。
+
+    大 cellid 官方示例仍与 GSM/WCDMA 搭配；传 LTE 会导致 INVALID_PARAMS。
+    """
     if not cells:
         return "GSM"
     try:
         cid = int(str(cells[0].get("cell_id", "0")).strip())
         if cid > 65535:
-            return "LTE"
+            # 与官方「移动网络+非 CDMA」示例一致：大 cellid 仍用 GSM
+            return "GSM"
     except ValueError:
         pass
     return "GSM"
