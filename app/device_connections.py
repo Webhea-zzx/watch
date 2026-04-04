@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 ADMIN_UPLOAD_INTERVALS_SEC = frozenset({180, 300, 600, 900, 1800, 3600, 7200, 14400})
 
 
+def _norm_device_id(device_id: str) -> str:
+    """与字典键一致，避免线路上 IMEI 带空格导致「有数据但查询不在线」。"""
+    return (device_id or "").strip()
+
+
 @dataclass(slots=True)
 class LiveBinding:
     writer: asyncio.StreamWriter
@@ -43,6 +48,7 @@ class ConnectionRegistry:
         conn_id: str,
         conn_lock: asyncio.Lock,
     ) -> None:
+        device_id = _norm_device_id(device_id)
         v = (vendor or "").strip() or "ZJ"
         async with self._lock:
             self._by_device[device_id] = LiveBinding(
@@ -60,6 +66,7 @@ class ConnectionRegistry:
                 del self._by_device[did]
 
     async def is_online(self, device_id: str) -> bool:
+        device_id = _norm_device_id(device_id)
         async with self._lock:
             b = self._by_device.get(device_id)
             if b is None:
@@ -106,6 +113,7 @@ class ConnectionRegistry:
             )
             return "上报间隔选项无效"
 
+        device_id = _norm_device_id(device_id)
         async with self._lock:
             b = self._by_device.get(device_id)
 

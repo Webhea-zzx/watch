@@ -71,6 +71,9 @@
             <span class="muted">在线</span>
             {% else %}
             <span class="muted">未连接</span>
+            {% if d.device_id in recent_tcp_offline_ids %}
+            <span class="help" style="display:block;font-size:0.82rem;margin-top:0.2rem;line-height:1.35;">约 5 分钟内库中仍有上报，本进程却无 TCP：请确认未使用 <code style="font-size:0.9em;">uvicorn --workers</code> 大于 1，且设备连接的 TCP 端口与本后台为同一进程。</span>
+            {% endif %}
             {% endif %}
           </td>
           <td>

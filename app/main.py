@@ -128,6 +128,20 @@ def _utc_range_from_cst_dates(start_s: str, end_s: str) -> tuple[datetime, datet
     return start_utc, end_utc_exclusive
 
 
+def _recent_seen_but_tcp_offline(
+    devs: list[Device], online_map: dict[str, bool], window_seconds: int = 300
+) -> frozenset[str]:
+    """若近期库里有上报但本进程 TCP 表无连接，多为多进程部署或 HTTP 与 TCP 不在同一实例。"""
+    cutoff = datetime.utcnow() - timedelta(seconds=window_seconds)
+    return frozenset(
+        d.device_id
+        for d in devs
+        if not online_map.get(d.device_id)
+        and d.last_seen is not None
+        and d.last_seen >= cutoff
+    )
+
+
 async def _live_tiles_for_device(db: AsyncSession, device_id: str) -> list[dict]:
     latest_by_cmd = (
         select(CommandEvent.command, func.max(CommandEvent.id).label("mid"))
@@ -331,6 +345,7 @@ async def page_config_downlink(request: Request, db: AsyncSession = Depends(get_
     devs = list(r.scalars())
     reg = get_connection_registry()
     online_map = {d.device_id: await reg.is_online(d.device_id) for d in devs}
+    recent_tcp_offline = _recent_seen_but_tcp_offline(devs, online_map)
     return templates.TemplateResponse(
         request,
         "config_downlink.html",
@@ -339,6 +354,7 @@ async def page_config_downlink(request: Request, db: AsyncSession = Depends(get_
             "upload_intervals": CONFIG_UPLOAD_INTERVALS,
             "devices": devs,
             "online_map": online_map,
+            "recent_tcp_offline_ids": recent_tcp_offline,
             "results": {},
             "form_error": None,
             "last_mode": None,
@@ -376,6 +392,7 @@ async def action_config_apply(request: Request, db: AsyncSession = Depends(get_d
     valid_ids = {d.device_id for d in devs}
     reg = get_connection_registry()
     online_map = {d.device_id: await reg.is_online(d.device_id) for d in devs}
+    recent_tcp_offline = _recent_seen_but_tcp_offline(devs, online_map)
 
     results: dict[str, str] = {}
     form_error: str | None = None
@@ -400,6 +417,7 @@ async def action_config_apply(request: Request, db: AsyncSession = Depends(get_d
             "upload_intervals": CONFIG_UPLOAD_INTERVALS,
             "devices": devs,
             "online_map": online_map,
+            "recent_tcp_offline_ids": recent_tcp_offline,
             "results": results,
             "form_error": form_error,
             "last_mode": mode if mode in range(5) else None,

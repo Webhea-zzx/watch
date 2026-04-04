@@ -4,13 +4,15 @@ import asyncio
 import copy
 import hashlib
 import logging
+import socket
+import sys
 import uuid
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import FILES_DIR
+from app.config import FILES_DIR, TCP_KEEPALIVE_IDLE_SEC
 from app.device_connections import get_connection_registry
 from app.db.models import CommandEvent, Device, RawMessage
 from app.db.session import SessionLocal
@@ -225,9 +227,40 @@ async def process_inbound_frame(
     return replies
 
 
+def _configure_tcp_keepalive(writer: asyncio.StreamWriter) -> None:
+    """收紧 keepalive，避免对端关机/断网后半开连接长期占用「在线」状态。"""
+    sock = writer.transport.get_extra_info("socket")
+    if sock is None:
+        return
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    except OSError as e:
+        logger.debug("SO_KEEPALIVE: %s", e)
+        return
+    idle = TCP_KEEPALIVE_IDLE_SEC
+    if idle <= 0:
+        return
+    try:
+        if hasattr(socket, "TCP_KEEPIDLE"):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)
+            if hasattr(socket, "TCP_KEEPINTVL"):
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, max(10, min(30, idle // 4)))
+            if hasattr(socket, "TCP_KEEPCNT"):
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+        elif sys.platform == "darwin" and hasattr(socket, "TCP_KEEPALIVE"):
+            # macOS tcp(4)：空闲多久开始发探测，单位为毫秒
+            try:
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, idle * 1000)
+            except OSError as e:
+                logger.debug("TCP_KEEPALIVE (darwin): %s", e)
+    except OSError as e:
+        logger.debug("TCP keepalive 参数: %s", e)
+
+
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     conn_id = str(uuid.uuid4())
     addr = writer.get_extra_info("peername")
+    _configure_tcp_keepalive(writer)
     async with _lock:
         _active_connections.add(conn_id)
 
@@ -245,7 +278,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 async with SessionLocal() as session:
                     try:
                         async with conn_lock:
-                            replies = await process_inbound_frame(session, conn_id, frame, outbound_seq)
+                            # 完整帧解析后即绑定连接，再处理业务；避免仅因业务异常而未登记在线
                             await reg.bind(
                                 frame.device_id,
                                 frame.vendor,
@@ -254,6 +287,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                                 conn_id,
                                 conn_lock,
                             )
+                            replies = await process_inbound_frame(session, conn_id, frame, outbound_seq)
                             for rep in replies:
                                 writer.write(rep)
                             await writer.drain()

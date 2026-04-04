@@ -13,6 +13,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 TCP_HOST = _get("TCP_HOST", "0.0.0.0")
 TCP_PORT = int(_get("TCP_PORT", "9000"))
+# 无流量多久后发 TCP keepalive 探测（秒）。设备关机/断网时往往无 FIN，依赖探测剔除半开连接；0=仅开启 SO_KEEPALIVE，不改系统默认间隔
+TCP_KEEPALIVE_IDLE_SEC = int(_get("TCP_KEEPALIVE_IDLE_SEC", "120"))
 
 WEB_HOST = _get("WEB_HOST", "127.0.0.1")
 WEB_PORT = int(_get("WEB_PORT", "8000"))
