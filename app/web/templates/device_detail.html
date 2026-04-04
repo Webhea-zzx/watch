@@ -37,6 +37,7 @@
     <select name="cmd">
       <option value="" {% if not filter_cmd %}selected{% endif %}>全部</option>
       <option value="UD" {% if filter_cmd == 'UD' %}selected{% endif %}>定位</option>
+      <option value="UD2" {% if filter_cmd == 'UD2' %}selected{% endif %}>补传定位</option>
       <option value="LK" {% if filter_cmd == 'LK' %}selected{% endif %}>心跳</option>
       <option value="INIT" {% if filter_cmd == 'INIT' %}selected{% endif %}>联网</option>
       <option value="AL" {% if filter_cmd == 'AL' %}selected{% endif %}>报警</option>

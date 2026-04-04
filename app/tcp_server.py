@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import hashlib
+import logging
 import uuid
 from datetime import datetime
 
@@ -20,8 +21,35 @@ from app.protocol.parsers.registry import hex_preview, parse_command, summary_to
 from app.services.amap_enrich import schedule_amap_location_enrich
 from app.web.amap_key_store import get_amap_key
 
+logger = logging.getLogger(__name__)
+
 _active_connections: set[str] = set()
 _lock = asyncio.Lock()
+
+# 持有一次性地图增强任务，避免被 GC 提前回收导致未写回地址
+_amap_enrich_tasks: set[asyncio.Task] = set()
+
+_LOCATION_CMDS = frozenset(
+    {"UD", "UD2", "AL", "GETLOC", "CLOCKIN", "CLOCKOUT", "WT"}
+)
+
+
+def _spawn_amap_location_enrich(
+    device_id: str,
+    parsed: dict,
+    location_apply_seq: int,
+    command_event_id: int,
+) -> None:
+    t = asyncio.create_task(
+        schedule_amap_location_enrich(
+            device_id,
+            parsed,
+            location_apply_seq,
+            command_event_id,
+        )
+    )
+    _amap_enrich_tasks.add(t)
+    t.add_done_callback(_amap_enrich_tasks.discard)
 
 
 async def active_connection_count() -> int:
@@ -125,7 +153,7 @@ async def process_inbound_frame(
     if cmd == "LK":
         await _apply_lk_device(session, frame, parsed)
     location_apply_seq: int | None = None
-    if cmd in ("UD", "AL", "GETLOC", "CLOCKIN", "CLOCKOUT", "WT"):
+    if cmd in _LOCATION_CMDS:
         location_apply_seq = await _apply_location_device(session, frame, parsed)
 
     session.add(
@@ -166,6 +194,15 @@ async def process_inbound_frame(
             )
         )
 
+    await session.flush()
+    command_event_id = cmd_event.id
+    if command_event_id is None:
+        logger.error(
+            "CommandEvent 未获得主键，地图增强将无法写回该条摘要 device_id=%s cmd=%s",
+            frame.device_id,
+            cmd,
+        )
+
     try:
         await session.commit()
     except Exception:
@@ -173,17 +210,16 @@ async def process_inbound_frame(
         raise
 
     if (
-        cmd in ("UD", "AL", "GETLOC", "CLOCKIN", "CLOCKOUT", "WT")
+        cmd in _LOCATION_CMDS
         and get_amap_key().strip()
         and location_apply_seq is not None
+        and command_event_id is not None
     ):
-        asyncio.create_task(
-            schedule_amap_location_enrich(
-                frame.device_id,
-                copy.deepcopy(parsed),
-                location_apply_seq,
-                cmd_event.id,
-            )
+        _spawn_amap_location_enrich(
+            frame.device_id,
+            copy.deepcopy(parsed),
+            location_apply_seq,
+            command_event_id,
         )
 
     return replies

@@ -95,6 +95,10 @@ async def _enrich_device_with_amap(
         return
 
     if not (cells or wifi):
+        logger.info(
+            "地图增强跳过：无卫星点且解析不到基站/WiFi 指纹（UD 段字段不足或数量为 0）device_id=%s",
+            device_id,
+        )
         return
 
     loc = await amap_iot_locate(key, cells, wifi, device_id)
