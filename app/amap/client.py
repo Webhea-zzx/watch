@@ -21,40 +21,57 @@ def _mnc_two(mnc: str) -> str:
     return s or "00"
 
 
+def _bts_signal_dbm(raw: str) -> int:
+    """转换为协议要求的 dBm（约 -113..-1，正数按 2*x-113）。"""
+    try:
+        sig = int(raw)
+    except ValueError:
+        return -100
+    if sig >= 0:
+        sig = min(-1, sig * 2 - 113)
+    return max(-130, min(-1, sig))
+
+
+def _network_for_cells(cells: list[dict[str, str]]) -> str:
+    """智能硬件定位 2.0：network 取值 GSM/WCDMA/NR 等；大 cellid 常见于 LTE。"""
+    if not cells:
+        return "GSM"
+    try:
+        cid = int(str(cells[0].get("cell_id", "0")).strip())
+        if cid > 65535:
+            return "LTE"
+    except ValueError:
+        pass
+    return "GSM"
+
+
 def _bts_segment(cells: list[dict[str, str]]) -> tuple[str | None, str | None]:
+    """2.0 主基站：mcc,mnc,lac,cellid,signal,cage；周边：lac,cellid,signal,cage（| 分隔）。"""
     if not cells:
         return None, None
     first = cells[0]
-    try:
-        sig = int(first.get("signal", "-100"))
-    except ValueError:
-        sig = -100
-    if sig >= 0:
-        sig = min(-1, sig * 2 - 113)
+    sig = _bts_signal_dbm(str(first.get("signal", "-100")))
+    # cage：基站新鲜度（秒），无数据时 0（文档默认）
     seg0 = ",".join(
         [
             first.get("mcc", "460"),
             _mnc_two(first.get("mnc", "0")),
             first.get("lac", "0"),
             first.get("cell_id", "0"),
-            str(max(-130, min(-1, sig))),
-            "-1",
+            str(sig),
+            "0",
         ]
     )
     rest: list[str] = []
     for c in cells[1:]:
-        try:
-            rs = int(c.get("signal", "-100"))
-        except ValueError:
-            rs = -100
-        if rs >= 0:
-            rs = min(-1, rs * 2 - 113)
+        rs = _bts_signal_dbm(str(c.get("signal", "-100")))
         rest.append(
             ",".join(
                 [
                     c.get("lac", "0"),
                     c.get("cell_id", "0"),
-                    str(max(-130, min(-1, rs))),
+                    str(rs),
+                    "0",
                 ]
             )
         )
@@ -77,7 +94,7 @@ def _macs_segment(wifi: list[dict[str, str]]) -> str | None:
         ssid = (w.get("name") or "").strip() or " "
         if "," in ssid or "|" in ssid:
             ssid = " "
-        parts.append(f"{mac},{rssi},{ssid},-1")
+        parts.append(f"{mac},{rssi},{ssid},0")
     if len(parts) < 2:
         return None
     return "|".join(parts)
@@ -101,12 +118,13 @@ async def amap_iot_locate(
     q: dict[str, Any] = {
         "key": key.strip(),
         "cdma": "0",
-        "network": "GSM",
         "diu": diu[:32],
         "output": "json",
     }
     if bts:
+        # 2.0：1=移动网络，2=wifi；移动网络须 cdma、network、bts
         q["accesstype"] = "1"
+        q["network"] = _network_for_cells(cells)
         q["bts"] = bts
         if nearbts:
             q["nearbts"] = nearbts
@@ -114,6 +132,7 @@ async def amap_iot_locate(
             q["macs"] = macs
     else:
         q["accesstype"] = "2"
+        q["network"] = "GSM"
         w0 = wifi[0]
         m = (w0.get("mac") or "").strip().lower().replace("-", ":")
         try:
@@ -123,14 +142,15 @@ async def amap_iot_locate(
         ss0 = (w0.get("name") or " ").strip() or " "
         if "," in ss0 or "|" in ss0:
             ss0 = " "
+        # mmac：mac,signal,ssid,fresh（fresh 秒，默认 0）
         q["mmac"] = f"{m},{r0},{ss0},0"
         if macs:
             q["macs"] = macs
 
-    url = f"{IOT_URL}?{urlencode(q)}"
+    # 智能硬件定位 2.0 文档：POST；参数 application/x-www-form-urlencoded
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
-            r = await client.get(url)
+            r = await client.post(IOT_URL, data=q)
             r.raise_for_status()
             data = r.json()
     except Exception:
