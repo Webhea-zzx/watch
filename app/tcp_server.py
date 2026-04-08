@@ -324,7 +324,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         writer.close()
         try:
             await writer.wait_closed()
-        except Exception:
+        except BaseException:
             pass
         async with _lock:
             _active_connections.discard(conn_id)
