@@ -292,19 +292,32 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                                 writer.write(rep)
                             await writer.drain()
                     except Exception as e:
-                        async with SessionLocal() as session2:
-                            session2.add(
-                                RawMessage(
-                                    connection_id=conn_id,
-                                    direction="in",
-                                    vendor=frame.vendor,
-                                    device_id=frame.device_id,
-                                    raw_frame=frame_to_bytes(frame).decode("latin-1"),
-                                    parse_ok=False,
-                                    error=str(e),
+                        logger.exception(
+                            "帧处理异常 conn_id=%s device_id=%s cmd=%s",
+                            conn_id,
+                            frame.device_id,
+                            frame.command,
+                        )
+                        try:
+                            async with SessionLocal() as session2:
+                                session2.add(
+                                    RawMessage(
+                                        connection_id=conn_id,
+                                        direction="in",
+                                        vendor=frame.vendor,
+                                        device_id=frame.device_id,
+                                        raw_frame=frame_to_bytes(frame).decode("latin-1"),
+                                        parse_ok=False,
+                                        error=str(e),
+                                    )
                                 )
+                                await session2.commit()
+                        except Exception:
+                            logger.exception(
+                                "帧异常记库失败 conn_id=%s device_id=%s，连接保持",
+                                conn_id,
+                                frame.device_id,
                             )
-                            await session2.commit()
                         continue
     finally:
         await reg.unbind_connection(conn_id)
