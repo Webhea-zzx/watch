@@ -260,6 +260,7 @@ def _configure_tcp_keepalive(writer: asyncio.StreamWriter) -> None:
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     conn_id = str(uuid.uuid4())
     addr = writer.get_extra_info("peername")
+    logger.info("新 TCP 连接 conn_id=%s addr=%s", conn_id, addr)
     _configure_tcp_keepalive(writer)
     async with _lock:
         _active_connections.add(conn_id)
@@ -272,9 +273,14 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         while True:
             data = await reader.read(4096)
             if not data:
+                logger.info("conn_id=%s 对端关闭连接（read=0）", conn_id)
                 break
             buf.feed(data)
             for frame in buf.extract_frames():
+                logger.info(
+                    "收到帧 conn_id=%s device_id=%s cmd=%s",
+                    conn_id, frame.device_id, frame.command,
+                )
                 async with SessionLocal() as session:
                     try:
                         async with conn_lock:
@@ -286,6 +292,10 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                                 outbound_seq,
                                 conn_id,
                                 conn_lock,
+                            )
+                            logger.info(
+                                "bind 完成 device_id=%s conn_id=%s",
+                                frame.device_id, conn_id,
                             )
                             replies = await process_inbound_frame(session, conn_id, frame, outbound_seq)
                             for rep in replies:
@@ -320,6 +330,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                             )
                         continue
     finally:
+        logger.info("连接断开 conn_id=%s，执行 unbind", conn_id)
         await reg.unbind_connection(conn_id)
         writer.close()
         try:
