@@ -6,6 +6,7 @@ import hashlib
 import logging
 import socket
 import sys
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -224,11 +225,16 @@ async def process_inbound_frame(
     )
 
 
-def _configure_tcp_keepalive(writer: asyncio.StreamWriter) -> None:
-    """收紧 keepalive，避免对端关机/断网后半开连接长期占用「在线」状态。"""
+def _configure_tcp_socket(writer: asyncio.StreamWriter) -> None:
+    """TCP_NODELAY 禁用 Nagle 缓冲，确保小帧（心跳回复等）立即发出；
+    keepalive 探测半开连接。"""
     sock = writer.transport.get_extra_info("socket")
     if sock is None:
         return
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except OSError as e:
+        logger.debug("TCP_NODELAY: %s", e)
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     except OSError as e:
@@ -258,7 +264,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     conn_id = str(uuid.uuid4())
     addr = writer.get_extra_info("peername")
     logger.info("新 TCP 连接 conn_id=%s addr=%s", conn_id, addr)
-    _configure_tcp_keepalive(writer)
+    _configure_tcp_socket(writer)
     async with _lock:
         _active_connections.add(conn_id)
 
@@ -266,11 +272,17 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     outbound_seq = OutboundSeq()
     conn_lock = asyncio.Lock()
     reg = get_connection_registry()
+    frame_count = 0
     try:
         while True:
+            t_read_start = time.monotonic()
             data = await reader.read(4096)
+            t_read_done = time.monotonic()
             if not data:
-                logger.info("conn_id=%s 对端关闭连接（read=0）", conn_id)
+                logger.info(
+                    "conn_id=%s 对端关闭连接（read=0）已处理 %d 帧，本次 read 等待 %.1fms",
+                    conn_id, frame_count, (t_read_done - t_read_start) * 1000,
+                )
                 break
             buf.feed(data)
             frames = list(buf.extract_frames())
@@ -280,9 +292,12 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             results: list[_FrameResult] = []
             async with SessionLocal() as session:
                 for frame in frames:
+                    frame_count += 1
+                    t_frame = time.monotonic()
                     logger.info(
-                        "收到帧 conn_id=%s device_id=%s cmd=%s",
-                        conn_id, frame.device_id, frame.command,
+                        "收到帧 #%d conn_id=%s device_id=%s cmd=%s read等待=%.1fms",
+                        frame_count, conn_id, frame.device_id, frame.command,
+                        (t_read_done - t_read_start) * 1000,
                     )
                     try:
                         async with conn_lock:
@@ -294,10 +309,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                                 conn_id,
                                 conn_lock,
                             )
-                            logger.info(
-                                "bind 完成 device_id=%s conn_id=%s",
-                                frame.device_id, conn_id,
-                            )
                             async with session.begin_nested():
                                 result = await process_inbound_frame(
                                     session, conn_id, frame, outbound_seq,
@@ -305,8 +316,14 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                             for rep in result.replies:
                                 writer.write(rep)
                             await writer.drain()
+                        t_reply = time.monotonic()
+                        logger.info(
+                            "回复已发送 #%d conn_id=%s cmd=%s 处理+发送=%.1fms",
+                            frame_count, conn_id, frame.command,
+                            (t_reply - t_frame) * 1000,
+                        )
                         results.append(result)
-                    except Exception as e:
+                    except Exception as exc:
                         logger.exception(
                             "帧处理异常 conn_id=%s device_id=%s cmd=%s",
                             conn_id,
@@ -323,7 +340,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                                         device_id=frame.device_id,
                                         raw_frame=frame_to_bytes(frame).decode("latin-1"),
                                         parse_ok=False,
-                                        error=str(e),
+                                        error=str(exc),
                                     )
                                 )
                                 await err_session.commit()
@@ -335,6 +352,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                             )
                         continue
 
+                t_commit_start = time.monotonic()
                 try:
                     await session.commit()
                 except Exception:
@@ -344,20 +362,37 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                         conn_id, len(results),
                     )
                     results.clear()
+                t_commit_done = time.monotonic()
+                if results:
+                    logger.info(
+                        "commit 完成 conn_id=%s 帧数=%d commit耗时=%.1fms",
+                        conn_id, len(results),
+                        (t_commit_done - t_commit_start) * 1000,
+                    )
 
             for result in results:
-                if (
-                    result.cmd in _LOCATION_CMDS
-                    and get_amap_key().strip()
-                    and result.location_apply_seq is not None
-                    and result.command_event_id is not None
-                ):
-                    _spawn_amap_location_enrich(
-                        result.device_id,
-                        copy.deepcopy(result.parsed),
-                        result.location_apply_seq,
-                        result.command_event_id,
+                try:
+                    if (
+                        result.cmd in _LOCATION_CMDS
+                        and get_amap_key().strip()
+                        and result.location_apply_seq is not None
+                        and result.command_event_id is not None
+                    ):
+                        _spawn_amap_location_enrich(
+                            result.device_id,
+                            copy.deepcopy(result.parsed),
+                            result.location_apply_seq,
+                            result.command_event_id,
+                        )
+                except Exception:
+                    logger.exception(
+                        "地图增强调度异常（连接保持）conn_id=%s device_id=%s cmd=%s",
+                        conn_id, result.device_id, result.cmd,
                     )
+    except Exception:
+        logger.exception(
+            "连接主循环未预期异常 conn_id=%s 已处理 %d 帧", conn_id, frame_count,
+        )
     finally:
         logger.info("连接断开 conn_id=%s，执行 unbind", conn_id)
         await reg.unbind_connection(conn_id)
