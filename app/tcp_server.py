@@ -7,6 +7,7 @@ import logging
 import socket
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import select
@@ -115,6 +116,16 @@ async def _apply_location_device(session: AsyncSession, frame: ParsedFrame, pars
     return seq
 
 
+@dataclass(slots=True)
+class _FrameResult:
+    replies: list[bytes]
+    cmd: str
+    device_id: str
+    parsed: dict | None
+    location_apply_seq: int | None
+    command_event_id: int | None
+
+
 def _save_media(cmd: str, device_id: str, blob: bytes) -> str | None:
     if not blob:
         return None
@@ -131,7 +142,12 @@ async def process_inbound_frame(
     connection_id: str,
     frame: ParsedFrame,
     outbound_seq: OutboundSeq,
-) -> list[bytes]:
+) -> _FrameResult:
+    """解析入站帧、写入 DB（flush 但不 commit），返回待发送的回复帧及后续元数据。
+
+    调用方负责：先发 TCP 回复，再 session.commit()，最后按需触发地图增强。
+    这样设备能在 DB 落盘前就拿到应答，避免因 fsync 延迟导致超时断连。
+    """
     raw_wire = frame_to_bytes(frame)
     raw_text = raw_wire.decode("latin-1")
 
@@ -205,26 +221,14 @@ async def process_inbound_frame(
             cmd,
         )
 
-    try:
-        await session.commit()
-    except Exception:
-        await session.rollback()
-        raise
-
-    if (
-        cmd in _LOCATION_CMDS
-        and get_amap_key().strip()
-        and location_apply_seq is not None
-        and command_event_id is not None
-    ):
-        _spawn_amap_location_enrich(
-            frame.device_id,
-            copy.deepcopy(parsed),
-            location_apply_seq,
-            command_event_id,
-        )
-
-    return replies
+    return _FrameResult(
+        replies=replies,
+        cmd=cmd,
+        device_id=frame.device_id,
+        parsed=parsed if cmd in _LOCATION_CMDS else None,
+        location_apply_seq=location_apply_seq,
+        command_event_id=command_event_id,
+    )
 
 
 def _configure_tcp_keepalive(writer: asyncio.StreamWriter) -> None:
@@ -284,7 +288,6 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 async with SessionLocal() as session:
                     try:
                         async with conn_lock:
-                            # 完整帧解析后即绑定连接，再处理业务；避免仅因业务异常而未登记在线
                             await reg.bind(
                                 frame.device_id,
                                 frame.vendor,
@@ -297,10 +300,31 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                                 "bind 完成 device_id=%s conn_id=%s",
                                 frame.device_id, conn_id,
                             )
-                            replies = await process_inbound_frame(session, conn_id, frame, outbound_seq)
-                            for rep in replies:
+                            result = await process_inbound_frame(session, conn_id, frame, outbound_seq)
+                            for rep in result.replies:
                                 writer.write(rep)
                             await writer.drain()
+                        try:
+                            await session.commit()
+                        except Exception:
+                            await session.rollback()
+                            logger.exception(
+                                "帧数据落库失败（回复已发出）conn_id=%s device_id=%s cmd=%s",
+                                conn_id, frame.device_id, frame.command,
+                            )
+                            continue
+                        if (
+                            result.cmd in _LOCATION_CMDS
+                            and get_amap_key().strip()
+                            and result.location_apply_seq is not None
+                            and result.command_event_id is not None
+                        ):
+                            _spawn_amap_location_enrich(
+                                result.device_id,
+                                copy.deepcopy(result.parsed),
+                                result.location_apply_seq,
+                                result.command_event_id,
+                            )
                     except Exception as e:
                         logger.exception(
                             "帧处理异常 conn_id=%s device_id=%s cmd=%s",
