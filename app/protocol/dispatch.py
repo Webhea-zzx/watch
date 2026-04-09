@@ -25,8 +25,7 @@ def _utc_now() -> datetime:
 
 
 def _lk_reply_payload() -> str:
-    t = _utc_now()
-    return t.strftime("LK,%Y-%m-%d,%H:%M:%S")
+    return "LK"
 
 
 def _lgzone_reply_payload() -> str:
