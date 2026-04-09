@@ -60,43 +60,36 @@ async def active_connection_count() -> int:
         return len(_active_connections)
 
 
-async def _touch_device(session: AsyncSession, frame: ParsedFrame) -> None:
+async def _get_or_create_device(session: AsyncSession, frame: ParsedFrame) -> Device:
+    """查询或新建 Device 行并更新 last_seen，返回行对象供后续复用（避免重复 SELECT）。"""
     now = datetime.utcnow()
     r = await session.execute(select(Device).where(Device.device_id == frame.device_id))
     row = r.scalar_one_or_none()
     if row is None:
-        session.add(
-            Device(
-                device_id=frame.device_id,
-                vendor=frame.vendor,
-                first_seen=now,
-                last_seen=now,
-            )
+        row = Device(
+            device_id=frame.device_id,
+            vendor=frame.vendor,
+            first_seen=now,
+            last_seen=now,
         )
+        session.add(row)
     else:
         row.vendor = frame.vendor
         row.last_seen = now
+    return row
 
 
-async def _apply_lk_device(session: AsyncSession, frame: ParsedFrame, parsed: dict) -> None:
-    r = await session.execute(select(Device).where(Device.device_id == frame.device_id))
-    row = r.scalar_one_or_none()
-    if row is None:
-        return
+def _apply_lk_device(device: Device, parsed: dict) -> None:
     b = parsed.get("battery")
     if isinstance(b, int):
-        row.last_lk_battery = b
+        device.last_lk_battery = b
 
 
-async def _apply_location_device(session: AsyncSession, frame: ParsedFrame, parsed: dict) -> int | None:
+def _apply_location_device(device: Device, parsed: dict) -> int | None:
     """有效卫星点：写 WGS84 快照与 GCJ-02 展示坐标；无卫星点由地图服务异步写网络定位。
     返回本帧对应的 location_apply_seq（每条定位上报递增），供异步任务防竞态。"""
-    r = await session.execute(select(Device).where(Device.device_id == frame.device_id))
-    row = r.scalar_one_or_none()
-    if row is None:
-        return None
-    row.location_apply_seq = (row.location_apply_seq or 0) + 1
-    seq = row.location_apply_seq
+    device.location_apply_seq = (device.location_apply_seq or 0) + 1
+    seq = device.location_apply_seq
     now = datetime.utcnow()
     if (
         parsed.get("gps_valid")
@@ -105,14 +98,14 @@ async def _apply_location_device(session: AsyncSession, frame: ParsedFrame, pars
     ):
         la = float(parsed["lat"])
         lo = float(parsed["lng"])
-        row.last_gps_lat = la
-        row.last_gps_lng = lo
-        row.last_gps_at = now
+        device.last_gps_lat = la
+        device.last_gps_lng = lo
+        device.last_gps_at = now
         lo_g, la_g = wgs84_to_gcj02(lo, la)
-        row.last_lat = la_g
-        row.last_lng = lo_g
-        row.last_loc_at = now
-        row.last_display_source = "gps"
+        device.last_lat = la_g
+        device.last_lng = lo_g
+        device.last_loc_at = now
+        device.last_display_source = "gps"
     return seq
 
 
@@ -166,13 +159,13 @@ async def process_inbound_frame(
     if media and cmd in ("SENDPHOTO", "JXTK"):
         media_path = _save_media(cmd, frame.device_id, media)
 
-    await _touch_device(session, frame)
+    device = await _get_or_create_device(session, frame)
     await session.flush()
     if cmd == "LK":
-        await _apply_lk_device(session, frame, parsed)
+        _apply_lk_device(device, parsed)
     location_apply_seq: int | None = None
     if cmd in _LOCATION_CMDS:
-        location_apply_seq = await _apply_location_device(session, frame, parsed)
+        location_apply_seq = _apply_location_device(device, parsed)
 
     session.add(
         RawMessage(
@@ -280,12 +273,17 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 logger.info("conn_id=%s 对端关闭连接（read=0）", conn_id)
                 break
             buf.feed(data)
-            for frame in buf.extract_frames():
-                logger.info(
-                    "收到帧 conn_id=%s device_id=%s cmd=%s",
-                    conn_id, frame.device_id, frame.command,
-                )
-                async with SessionLocal() as session:
+            frames = list(buf.extract_frames())
+            if not frames:
+                continue
+
+            results: list[_FrameResult] = []
+            async with SessionLocal() as session:
+                for frame in frames:
+                    logger.info(
+                        "收到帧 conn_id=%s device_id=%s cmd=%s",
+                        conn_id, frame.device_id, frame.command,
+                    )
                     try:
                         async with conn_lock:
                             await reg.bind(
@@ -300,31 +298,14 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                                 "bind 完成 device_id=%s conn_id=%s",
                                 frame.device_id, conn_id,
                             )
-                            result = await process_inbound_frame(session, conn_id, frame, outbound_seq)
+                            async with session.begin_nested():
+                                result = await process_inbound_frame(
+                                    session, conn_id, frame, outbound_seq,
+                                )
                             for rep in result.replies:
                                 writer.write(rep)
                             await writer.drain()
-                        try:
-                            await session.commit()
-                        except Exception:
-                            await session.rollback()
-                            logger.exception(
-                                "帧数据落库失败（回复已发出）conn_id=%s device_id=%s cmd=%s",
-                                conn_id, frame.device_id, frame.command,
-                            )
-                            continue
-                        if (
-                            result.cmd in _LOCATION_CMDS
-                            and get_amap_key().strip()
-                            and result.location_apply_seq is not None
-                            and result.command_event_id is not None
-                        ):
-                            _spawn_amap_location_enrich(
-                                result.device_id,
-                                copy.deepcopy(result.parsed),
-                                result.location_apply_seq,
-                                result.command_event_id,
-                            )
+                        results.append(result)
                     except Exception as e:
                         logger.exception(
                             "帧处理异常 conn_id=%s device_id=%s cmd=%s",
@@ -333,8 +314,8 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                             frame.command,
                         )
                         try:
-                            async with SessionLocal() as session2:
-                                session2.add(
+                            async with SessionLocal() as err_session:
+                                err_session.add(
                                     RawMessage(
                                         connection_id=conn_id,
                                         direction="in",
@@ -345,7 +326,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                                         error=str(e),
                                     )
                                 )
-                                await session2.commit()
+                                await err_session.commit()
                         except Exception:
                             logger.exception(
                                 "帧异常记库失败 conn_id=%s device_id=%s，连接保持",
@@ -353,6 +334,30 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                                 frame.device_id,
                             )
                         continue
+
+                try:
+                    await session.commit()
+                except Exception:
+                    await session.rollback()
+                    logger.exception(
+                        "批量帧数据落库失败（回复已发出）conn_id=%s 帧数=%d",
+                        conn_id, len(results),
+                    )
+                    results.clear()
+
+            for result in results:
+                if (
+                    result.cmd in _LOCATION_CMDS
+                    and get_amap_key().strip()
+                    and result.location_apply_seq is not None
+                    and result.command_event_id is not None
+                ):
+                    _spawn_amap_location_enrich(
+                        result.device_id,
+                        copy.deepcopy(result.parsed),
+                        result.location_apply_seq,
+                        result.command_event_id,
+                    )
     finally:
         logger.info("连接断开 conn_id=%s，执行 unbind", conn_id)
         await reg.unbind_connection(conn_id)

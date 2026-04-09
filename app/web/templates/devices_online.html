@@ -8,28 +8,7 @@
   <a href="/devices">全部手表</a>
 </p>
 
-<p class="help" style="margin-bottom:1rem;">当前共 <strong>{{ count }}</strong> 台设备在本机 TCP 上保持连接（刷新页面可更新）。</p>
-
-<div class="table-scroll">
-  <table role="grid">
-    <thead>
-      <tr>
-        <th scope="col">设备编号</th>
-        <th scope="col">厂商</th>
-        <th scope="col">连接 ID</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in rows %}
-      <tr>
-        <td><a href="/devices/{{ row.device_id }}">{{ row.device_id }}</a></td>
-        <td><span class="tech">{{ row.vendor }}</span></td>
-        <td><span class="tech">{{ row.connection_id }}</span></td>
-      </tr>
-      {% else %}
-      <tr><td colspan="3" class="muted">当前没有在线设备</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div id="online-table" hx-get="/partials/devices-online" hx-trigger="load, every 5s" hx-swap="innerHTML">
+  <p class="muted" style="padding:1rem">加载中</p>
 </div>
 {% endblock %}

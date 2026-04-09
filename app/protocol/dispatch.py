@@ -71,6 +71,7 @@ def _healthcode_stub() -> str:
 _ACK_SAME_AS_COMMAND = frozenset(
     {
         "UD",
+        "UD2",
         "AL",
         "HEART",
         "BLOOD",
@@ -120,9 +121,6 @@ def build_replies(frame: ParsedFrame, parsed: dict, seq: OutboundSeq) -> list[by
 
     def one(payload: str) -> bytes:
         return build_frame(v, d, seq.next(), payload)
-
-    if cmd == "UD2":
-        return []
 
     if cmd == "INIT":
         return [one("INIT,1")]

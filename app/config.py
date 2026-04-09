@@ -37,4 +37,7 @@ FILES_DIR.mkdir(parents=True, exist_ok=True)
 # 平台回复 LGZONE 时使用的时区（相对 UTC 的整数小时，如北京为 8）
 PLATFORM_TZ_OFFSET_HOURS = int(_get("PLATFORM_TZ_OFFSET_HOURS", "8"))
 
+# 数据库自动清理：保留最近 N 天的 RawMessage 和 CommandEvent；0 = 不清理
+DB_RETENTION_DAYS = int(_get("DB_RETENTION_DAYS", "30"))
+
 # 地图服务 API Key：默认读环境变量 AMAP_KEY；可在「配置下发」页写入本地文件（优先）。见 app.web.amap_key_store.get_amap_key

@@ -21,13 +21,13 @@ from urllib.parse import quote
 
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.config import SECRET_KEY, TCP_HOST, TCP_PORT
+from app.config import DB_RETENTION_DAYS, SECRET_KEY, TCP_HOST, TCP_PORT
 from app.db.models import CommandEvent, Device, RawMessage
-from app.db.session import init_db
+from app.db.session import SessionLocal, init_db
 from app.device_connections import ADMIN_UPLOAD_INTERVALS_SEC, get_connection_registry
 from app.tcp_server import handle_client
 from app.web.auth_deps import require_admin
@@ -187,6 +187,33 @@ async def _load_device_live_tiles(db: AsyncSession, device_id: str) -> tuple[Dev
     return dev, await _live_tiles_for_device(db, device_id)
 
 
+_logger = logging.getLogger(__name__)
+
+
+async def _periodic_db_cleanup() -> None:
+    """后台定时删除超过 DB_RETENTION_DAYS 的 RawMessage 和 CommandEvent。"""
+    if DB_RETENTION_DAYS <= 0:
+        return
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            cutoff = datetime.utcnow() - timedelta(days=DB_RETENTION_DAYS)
+            async with SessionLocal() as session:
+                r1 = await session.execute(
+                    delete(RawMessage).where(RawMessage.created_at < cutoff)
+                )
+                r2 = await session.execute(
+                    delete(CommandEvent).where(CommandEvent.created_at < cutoff)
+                )
+                await session.commit()
+            _logger.info(
+                "定期清理完成：删除 %d 条原始帧、%d 条指令事件（保留 %d 天）",
+                r1.rowcount, r2.rowcount, DB_RETENTION_DAYS,
+            )
+        except Exception:
+            _logger.exception("定期清理失败")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
@@ -198,12 +225,15 @@ async def lifespan(app: FastAPI):
             await srv.serve_forever()
 
     task = asyncio.create_task(_serve())
+    cleanup_task = asyncio.create_task(_periodic_db_cleanup())
     yield
+    cleanup_task.cancel()
     task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    for t in (task, cleanup_task):
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="手表数据后台", lifespan=lifespan)
@@ -342,6 +372,17 @@ async def page_devices_online(request: Request):
     return templates.TemplateResponse(
         request,
         "devices_online.html",
+        {"rows": rows, "count": len(rows)},
+    )
+
+
+@app.get("/partials/devices-online", response_class=HTMLResponse, dependencies=[Depends(require_admin)])
+async def partial_devices_online(request: Request):
+    reg = get_connection_registry()
+    rows = await reg.list_online_devices()
+    return templates.TemplateResponse(
+        request,
+        "_devices_online_table.html",
         {"rows": rows, "count": len(rows)},
     )
 
